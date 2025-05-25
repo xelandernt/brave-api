@@ -112,7 +112,7 @@ class Discussions(BaseModel):
 
 class SearchResult(BaseModel):
     type: Literal["search_result"] = "search_result"
-    subtype: Literal["generic"] = "generic"
+    subtype: str = "generic"
     is_live: bool = False
     deep_results: Optional["DeepResult"] = None
     schemas: Optional[List[List[Any]]] = None
@@ -490,7 +490,7 @@ class Action(BaseModel):
 
 
 class AbstractGraphInfobox(Result):
-    type: Literal["infobox"] = "infobox"
+    type: str = "infobox"
     position: int
     label: Optional[str] = None
     category: Optional[str] = None
@@ -507,7 +507,7 @@ class AbstractGraphInfobox(Result):
 
 
 class GenericInfobox(AbstractGraphInfobox):
-    subtype: Literal["generic"] = "generic"
+    subtype: str = "generic"
     found_in_urls: Optional[List[str]] = None
 
 
