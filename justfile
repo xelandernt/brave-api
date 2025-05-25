@@ -11,6 +11,8 @@ lint:
     uv run pre-commit run mypy --all-files
     uv run pre-commit run end-of-file-fixer --all-files
     uv run pre-commit run mixed-line-ending --all-files
+    uv run pre-commit run codespell --all-files
+
 
 test *args:
     uv run --no-sync pytest {{ args }}
