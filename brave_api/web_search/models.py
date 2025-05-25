@@ -1,5 +1,5 @@
 from typing import List, Optional, Union, Literal, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Base and utility models
 
@@ -599,3 +599,94 @@ LocalDescriptionsSearchApiResponse.model_rebuild()
 Recipe.model_rebuild()
 HowTo.model_rebuild()
 CreativeWork.model_rebuild()
+
+
+class WebSearchQueryParams(BaseModel):
+    q: str = Field(
+        ...,
+        description="The user’s search query term. Can not be empty. Max 400 chars and 50 words.",
+    )
+    country: Optional[str] = Field(
+        "US",
+        max_length=2,
+        description="2 character country code. See country codes list.",
+    )
+    search_lang: Optional[str] = Field(
+        "en",
+        min_length=2,
+        description="2+ character language code. See language codes list.",
+    )
+    ui_lang: Optional[str] = Field(
+        "en-US",
+        description="Format <language_code>-<country_code> (see RFC9110 and UI language codes list).",
+    )
+    count: Optional[int] = Field(
+        20, ge=1, le=20, description="Number of search results to return (max 20)."
+    )
+    offset: Optional[int] = Field(
+        0, ge=0, le=9, description="Zero-based page offset (max 9)."
+    )
+    safesearch: Optional[str] = Field(
+        "moderate",
+        pattern="^(off|moderate|strict)$",
+        description="Adult content filter: off, moderate, strict.",
+    )
+    freshness: Optional[str] = Field(
+        None,
+        description=(
+            "Limits discovery to a time window. One of: pd (24h), pw (7d), pm (31d), py (365d), "
+            "or range YYYY-MM-DDtoYYYY-MM-DD."
+        ),
+    )
+    text_decorations: Optional[bool] = Field(
+        True,
+        description="Whether display strings include decoration markers (highlighting).",
+    )
+    spellcheck: Optional[bool] = Field(True, description="Spellcheck provided query.")
+    result_filter: Optional[str] = Field(
+        None,
+        description=(
+            "Comma delimited result types to include. E.g. discussions,faq,news,web,infobox,query,summarizer,videos,locations."
+        ),
+    )
+    goggles_id: Optional[str] = Field(
+        None,
+        description="(Deprecated) Goggle for custom re-ranking (use `goggles` instead).",
+    )
+    goggles: Optional[List[str]] = Field(
+        None, description="List of goggle URLs/definitions for custom re-ranking."
+    )
+    units: Optional[str] = Field(
+        None,
+        pattern="^(metric|imperial)$",
+        description="Measurement units: metric, imperial.",
+    )
+    extra_snippets: Optional[bool] = Field(
+        None, description="Get up to 5 additional, alternative result snippets."
+    )
+    summary: Optional[bool] = Field(
+        None, description="Enable summary key generation in web search results."
+    )
+
+
+class LocalSearchQueryParams(BaseModel):
+    ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        description="List of 1 to 20 non-empty unique location IDs.",
+    )
+    search_lang: Optional[str] = Field(
+        "en",
+        min_length=2,
+        description="2+ character language code. See language codes list.",
+    )
+    ui_lang: Optional[str] = Field(
+        "en-US",
+        description="Format <language_code>-<country_code> (see RFC9110 and UI language codes list).",
+    )
+    units: Optional[str] = Field(
+        None,
+        pattern="^(metric|imperial)$",
+        description="Measurement units: metric, imperial.",
+    )
