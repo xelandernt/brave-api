@@ -1,5 +1,5 @@
 [project]
-name = "brave-api"
+name = "brave-api-client"
 description = "Brave API client for Python"
 readme = "README.md"
 requires-python = ">=3.10,<4"
@@ -17,7 +17,7 @@ classifiers = [
 ]
 
 packages = [
-    { include = "that_depends" },
+    { include = "brave_api" },
 ]
 
 
@@ -32,6 +32,9 @@ strict = true
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["brave_api"]
 
 [dependency-groups]
 dev = [
