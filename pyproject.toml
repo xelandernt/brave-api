@@ -3,10 +3,7 @@ name = "brave-api-client"
 description = "Brave API client for Python"
 readme = "README.md"
 requires-python = ">=3.10,<4"
-dependencies = [
-    "httpx>=0.28.1",
-    "pydantic>=2.11.5",
-]
+dependencies = []
 dynamic = ["version"]
 classifiers = [
     "Programming Language :: Python :: 3.10",
@@ -18,6 +15,14 @@ classifiers = [
 
 packages = [
     { include = "brave_api" },
+]
+
+[project.optional-dependencies]
+async = [
+    "httpx>=0.28.1",
+]
+pydantic = [
+    "pydantic>=2.11.5",
 ]
 
 
