@@ -1,4 +1,6 @@
-default: install lint test
+[private]
+default:
+    @just --list
 
 install:
     uv lock --upgrade
@@ -6,13 +8,7 @@ install:
     @just hook
 
 lint:
-    uv run pre-commit run ruff --all-files
-    uv run pre-commit run ruff-format --all-files
-    uv run pre-commit run mypy --all-files
-    uv run pre-commit run end-of-file-fixer --all-files
-    uv run pre-commit run mixed-line-ending --all-files
-    uv run pre-commit run codespell --all-files
-
+    uv run prek run --all-files
 
 test *args:
     uv run --no-sync pytest {{ args }}
@@ -23,10 +19,10 @@ publish:
     uv publish --token $PYPI_TOKEN
 
 hook:
-    uv run pre-commit install --install-hooks --overwrite
+    uv run prek install --install-hooks --overwrite
 
 unhook:
-    uv run pre-commit uninstall
+    uv run prek uninstall
 
 docs:
     uv pip install -r docs/requirements.txt
