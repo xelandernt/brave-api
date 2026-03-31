@@ -73,6 +73,8 @@ class SuggestResult(BaseModel):
 
 
 class SuggestSearchApiResponse(BaseModel):
+    """Top-level typed response returned by `/suggest/search`."""
+
     type: Literal["suggest"] = Field(
         ..., description="The type of search api result. The value is always `suggest`."
     )

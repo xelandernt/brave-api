@@ -1,5 +1,81 @@
-from typing import List, Optional, Union, Literal, Any
-from pydantic import BaseModel, Field
+import re
+from datetime import datetime
+from typing import Any, List, Literal, Optional, Union
+
+from pydantic import BaseModel, Field, field_validator
+
+_VALID_WEB_RESULT_FILTERS = {
+    "discussions",
+    "faq",
+    "infobox",
+    "locations",
+    "news",
+    "query",
+    "summarizer",
+    "videos",
+    "web",
+}
+_VALID_FRESHNESS_VALUES = {"pd", "pw", "pm", "py"}
+
+
+def _validate_query_word_limit(v: str) -> str:
+    if len(v.split()) > 50:
+        raise ValueError("Query cannot have more than 50 words")
+    return v
+
+
+def _validate_date_range(v: str) -> bool:
+    if not re.match(r"^\d{4}-\d{2}-\d{2}to\d{4}-\d{2}-\d{2}$", v):
+        return False
+
+    start, end = v.split("to")
+    try:
+        datetime.strptime(start, "%Y-%m-%d")
+        datetime.strptime(end, "%Y-%m-%d")
+    except ValueError:
+        return False
+
+    return True
+
+
+def _validate_freshness(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    if v == "":
+        return v
+    if v in _VALID_FRESHNESS_VALUES or _validate_date_range(v):
+        return v
+    raise ValueError(
+        "Freshness must be one of pd, pw, pm, py, or a date range in the form YYYY-MM-DDtoYYYY-MM-DD"
+    )
+
+
+def _validate_result_filter(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+
+    filters = [item.strip() for item in v.split(",") if item.strip()]
+    if not filters:
+        raise ValueError("Result filter must contain at least one result type")
+
+    invalid = [item for item in filters if item not in _VALID_WEB_RESULT_FILTERS]
+    if invalid:
+        raise ValueError(
+            f"Invalid result filter values: {invalid}. Allowed values are {sorted(_VALID_WEB_RESULT_FILTERS)}"
+        )
+
+    return ",".join(filters)
+
+
+def _validate_location_ids(v: List[str]) -> List[str]:
+    if not v:
+        raise ValueError("At least one location id is required")
+    if any(not item.strip() for item in v):
+        raise ValueError("Location ids must be non-empty")
+    if len(set(v)) != len(v):
+        raise ValueError("Location ids must be unique")
+    return v
+
 
 # Base and utility models
 
@@ -604,6 +680,8 @@ CreativeWork.model_rebuild()
 class WebSearchQueryParams(BaseModel):
     q: str = Field(
         ...,
+        min_length=1,
+        max_length=400,
         description="The user’s search query term. Can not be empty. Max 400 chars and 50 words.",
     )
     country: Optional[str] = Field(
@@ -667,9 +745,37 @@ class WebSearchQueryParams(BaseModel):
     summary: Optional[bool] = Field(
         None, description="Enable summary key generation in web search results."
     )
+    enable_rich_callback: Optional[bool] = Field(
+        False,
+        description="Enable rich callback support for real-time rich results.",
+    )
+    operators: Optional[bool] = Field(
+        True, description="Whether to apply search operators."
+    )
+
+    @field_validator("q")
+    @classmethod
+    def validate_q_word_limit(cls, v: str) -> str:
+        return _validate_query_word_limit(v)
+
+    @field_validator("freshness")
+    @classmethod
+    def validate_freshness(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_freshness(v)
+
+    @field_validator("result_filter")
+    @classmethod
+    def validate_result_filter(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_result_filter(v)
 
 
 class LocalSearchQueryParams(BaseModel):
+    """
+    Validated query parameters for `/local/pois`.
+
+    The `ids` values come from location entries returned by web search.
+    """
+
     ids: List[str] = Field(
         ...,
         min_length=1,
@@ -690,3 +796,24 @@ class LocalSearchQueryParams(BaseModel):
         pattern="^(metric|imperial)$",
         description="Measurement units: metric, imperial.",
     )
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, v: List[str]) -> List[str]:
+        return _validate_location_ids(v)
+
+
+class LocalDescriptionsQueryParams(BaseModel):
+    """Validated query parameters for `/local/descriptions`."""
+
+    ids: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        description="List of 1 to 20 non-empty unique location IDs.",
+    )
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, v: List[str]) -> List[str]:
+        return _validate_location_ids(v)

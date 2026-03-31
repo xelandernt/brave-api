@@ -36,6 +36,11 @@ source = "vcs"
 [tool.hatch.build.targets.wheel]
 packages = ["brave_api"]
 
+[tool.pytest.ini_options]
+addopts = "--cov=. --cov-report term-missing"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
 [dependency-groups]
 dev = [
     "mkdocs>=1.6.1",

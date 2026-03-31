@@ -1,0 +1,63 @@
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+from brave_api.web_search.models import (
+    Query,
+    VideoResult,
+    _validate_freshness,
+    _validate_query_word_limit,
+)
+
+
+class VideoSearchQueryParams(BaseModel):
+    """
+    Validated query parameters for Brave video search.
+
+    Example:
+
+    ```python
+    VideoSearchQueryParams(
+        q="machine learning tutorial",
+        count=20,
+        freshness="pm",
+        safesearch="moderate",
+    )
+    ```
+    """
+
+    q: str = Field(..., min_length=1, max_length=400)
+    search_lang: Optional[str] = Field("en", min_length=2)
+    ui_lang: Optional[str] = Field("en-US")
+    country: Optional[str] = Field("US", min_length=2, max_length=3)
+    safesearch: Optional[Literal["off", "moderate", "strict"]] = Field("moderate")
+    count: Optional[int] = Field(20, ge=1, le=50)
+    offset: Optional[int] = Field(0, ge=0, le=9)
+    spellcheck: Optional[bool] = Field(True)
+    freshness: Optional[str] = Field(None)
+    operators: Optional[bool] = Field(True)
+
+    @field_validator("q")
+    @classmethod
+    def validate_q_word_limit(cls, v: str) -> str:
+        return _validate_query_word_limit(v)
+
+    @field_validator("freshness")
+    @classmethod
+    def validate_freshness(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_freshness(v)
+
+    @field_validator("country")
+    @classmethod
+    def validate_country(cls, v: Optional[str]) -> Optional[str]:
+        if v and v != "ALL" and len(v) != 2:
+            raise ValueError("Country code must be 2 characters or ALL")
+        return v
+
+
+class VideoSearchApiResponse(BaseModel):
+    """Top-level typed response returned by `/videos/search`."""
+
+    type: Literal["videos"]
+    query: Query
+    results: List[VideoResult]
