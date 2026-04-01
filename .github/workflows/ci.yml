@@ -31,6 +31,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    environment: test
     strategy:
       fail-fast: false
       matrix:
@@ -48,4 +49,4 @@ jobs:
           cache-dependency-glob: "**/pyproject.toml"
       - run: uv python install ${{ matrix.python-version }}
       - run: just install
-      - run: just test . --cov=. --cov-report xml
+      - run: just test . --cov=. --cov-report xml -rs

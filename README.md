@@ -35,8 +35,8 @@ export BRAVE_API_KEY=your-api-key
 
 ## Available clients
 
-- `BraveAPIClient`: synchronous client
-- `AsyncBraveAPIClient`: asynchronous client
+- `Brave`: synchronous client
+- `AsyncBrave`: asynchronous client
 
 ## Documentation
 
@@ -81,6 +81,74 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+## Retry configuration
+
+Retries are opt-in. The default `Brave` and `AsyncBrave` clients do not retry
+unless you pass a `RetryConfig`.
+
+### Fixed-delay retries
+
+```python
+from brave_api.client import Brave
+from brave_api.retries import FixedDelayRetryStrategy, RetryConfig
+
+client = Brave(
+    api_key="your-api-key",
+    retry_config=RetryConfig(
+        max_attempts=4,
+        strategy=FixedDelayRetryStrategy(delay_seconds=1.0),
+    ),
+)
+```
+
+### Exponential backoff
+
+```python
+from brave_api.client import AsyncBrave
+from brave_api.retries import ExponentialBackoffRetryStrategy, RetryConfig
+
+client = AsyncBrave(
+    api_key="your-api-key",
+    retry_config=RetryConfig(
+        max_attempts=5,
+        strategy=ExponentialBackoffRetryStrategy(
+            base_delay_seconds=0.5,
+            max_delay_seconds=8.0,
+        ),
+    ),
+)
+```
+
+### Retry-After aware retries
+
+`RetryAfterRetryStrategy` uses the server's `Retry-After` header when present
+and falls back to another strategy otherwise.
+
+```python
+from brave_api.client import Brave
+from brave_api.retries import (
+    ExponentialBackoffRetryStrategy,
+    RetryAfterRetryStrategy,
+    RetryConfig,
+)
+
+client = Brave(
+    api_key="your-api-key",
+    retry_config=RetryConfig(
+        max_attempts=3,
+        strategy=RetryAfterRetryStrategy(
+            fallback_strategy=ExponentialBackoffRetryStrategy(
+                base_delay_seconds=1.0,
+                max_delay_seconds=10.0,
+            )
+        ),
+    ),
+)
+```
+
+By default, `RetryConfig` retries transient transport failures plus HTTP
+`429`, `500`, `502`, `503`, and `504`.
 
 ## Supported APIs and methods
 

@@ -87,7 +87,7 @@ class Thumbnail(BaseModel):
 
 class Profile(BaseModel):
     name: str
-    long_name: str
+    long_name: Optional[str] = None
     url: Optional[str] = None
     img: Optional[str] = None
 
@@ -365,8 +365,8 @@ class Language(BaseModel):
 class NewsResult(Result):
     meta_url: Optional[MetaUrl] = None
     source: Optional[str] = None
-    breaking: bool
-    is_live: bool
+    breaking: Optional[bool] = None
+    is_live: Optional[bool] = None
     thumbnail: Optional[Thumbnail] = None
     age: Optional[str] = None
     extra_snippets: Optional[List[str]] = None
@@ -380,7 +380,7 @@ class News(BaseModel):
 
 class VideoData(BaseModel):
     duration: Optional[str] = None
-    views: Optional[str] = None
+    views: Optional[int] = None
     creator: Optional[str] = None
     publisher: Optional[str] = None
     thumbnail: Optional[Thumbnail] = None

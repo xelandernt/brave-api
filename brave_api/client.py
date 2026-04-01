@@ -1,6 +1,8 @@
 import abc
+import asyncio
 import json
 import os
+import time
 from typing import Any, AsyncIterator, Iterator, Optional, TypeVar
 
 import niquests
@@ -31,6 +33,7 @@ from brave_api.web_search.models import (
     WebSearchApiResponse,
     WebSearchQueryParams,
 )
+from brave_api.retries import RetryConfig
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
 
@@ -72,13 +75,16 @@ def _parse_streaming_event(line: str) -> SummarizerStreamingEvent:
 class _BraveBase(abc.ABC):
     def __init__(
         self,
+        *,
         base_url: str | None = None,
         api_key: str | None = None,
         proxy: str | None = None,
+        retry_config: RetryConfig | None = None,
     ):
         self.base_url = base_url or "https://api.search.brave.com/res/v1"
         self._provided_api_key = api_key
         self._proxy = proxy
+        self._retry_config = retry_config
 
     def _build_url(self, path: str) -> str:
         return f"{self.base_url}{path}"
@@ -112,20 +118,65 @@ class AsyncBrave(_BraveBase):
     def __init__(
         self,
         client: Optional[niquests.AsyncSession] = None,
-        *args: Any,
-        **kwargs: Any,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        proxy: str | None = None,
+        retry_config: RetryConfig | None = None,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            base_url=base_url,
+            api_key=api_key,
+            proxy=proxy,
+            retry_config=retry_config,
+        )
         self._client = client if client else niquests.AsyncSession()
+
+    async def _request(
+        self, path: str, query: BaseModel, *, stream: bool = False
+    ) -> Any:
+        url, headers, query_params = self._build_request(path, query)
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await self._client.get(
+                    url,
+                    headers=headers,
+                    params=query_params,
+                    proxies=self._proxy,
+                    stream=stream,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                await asyncio.sleep(
+                    self._retry_config.strategy.get_delay(attempt, error=error)
+                )
+                continue
+
+            if (
+                self._retry_config is not None
+                and attempt < attempts
+                and self._retry_config.should_retry_status(response.status_code)
+            ):
+                await asyncio.sleep(
+                    self._retry_config.strategy.get_delay(attempt, response=response)
+                )
+                continue
+
+            response.raise_for_status()
+            return response
+
+        raise AssertionError("unreachable")
 
     async def _get(
         self, path: str, query: BaseModel, model: type[ResponseModelT]
     ) -> ResponseModelT:
-        url, headers, query_params = self._build_request(path, query)
-        response = await self._client.get(
-            url, headers=headers, params=query_params, proxies=self._proxy
-        )
-        response.raise_for_status()
+        response = await self._request(path, query)
         return self._validate_response(model, response.json())
 
     async def search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
@@ -220,13 +271,9 @@ class AsyncBrave(_BraveBase):
     async def summarizer_summary_streaming(
         self, query: SummarizerQueryParams
     ) -> AsyncIterator[SummarizerStreamingEvent]:
-        url, headers, query_params = self._build_request(
-            "/summarizer/summary_streaming", query
+        response = await self._request(
+            "/summarizer/summary_streaming", query, stream=True
         )
-        response = await self._client.get(
-            url, headers=headers, params=query_params, proxies=self._proxy, stream=True
-        )
-        response.raise_for_status()
 
         async for line in response.iter_lines(decode_unicode=True):
             if not line:
@@ -243,20 +290,61 @@ class Brave(_BraveBase):
     def __init__(
         self,
         client: Optional[niquests.Session] = None,
-        *args: Any,
-        **kwargs: Any,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        proxy: str | None = None,
+        retry_config: RetryConfig | None = None,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            base_url=base_url,
+            api_key=api_key,
+            proxy=proxy,
+            retry_config=retry_config,
+        )
         self._client = client if client else niquests.Session()
+
+    def _request(self, path: str, query: BaseModel, *, stream: bool = False) -> Any:
+        url, headers, query_params = self._build_request(path, query)
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response = self._client.get(
+                    url,
+                    headers=headers,
+                    params=query_params,
+                    proxies=self._proxy,
+                    stream=stream,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                time.sleep(self._retry_config.strategy.get_delay(attempt, error=error))
+                continue
+
+            if (
+                self._retry_config is not None
+                and attempt < attempts
+                and self._retry_config.should_retry_status(response.status_code)
+            ):
+                time.sleep(
+                    self._retry_config.strategy.get_delay(attempt, response=response)
+                )
+                continue
+
+            response.raise_for_status()
+            return response
+
+        raise AssertionError("unreachable")
 
     def _get(
         self, path: str, query: BaseModel, model: type[ResponseModelT]
     ) -> ResponseModelT:
-        url, headers, query_params = self._build_request(path, query)
-        response = self._client.get(
-            url, headers=headers, params=query_params, proxies=self._proxy
-        )
-        response.raise_for_status()
+        response = self._request(path, query)
         return self._validate_response(model, response.json())
 
     def search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
@@ -341,13 +429,7 @@ class Brave(_BraveBase):
     def summarizer_summary_streaming(
         self, query: SummarizerQueryParams
     ) -> Iterator[SummarizerStreamingEvent]:
-        url, headers, query_params = self._build_request(
-            "/summarizer/summary_streaming", query
-        )
-        response = self._client.get(
-            url, headers=headers, params=query_params, proxies=self._proxy, stream=True
-        )
-        response.raise_for_status()
+        response = self._request("/summarizer/summary_streaming", query, stream=True)
 
         for line in response.iter_lines(decode_unicode=True):
             if not line:

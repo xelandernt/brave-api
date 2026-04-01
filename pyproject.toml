@@ -40,6 +40,9 @@ packages = ["brave_api"]
 addopts = "--cov=. --cov-report term-missing"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "live: integration tests that call the live Brave API",
+]
 
 [dependency-groups]
 dev = [

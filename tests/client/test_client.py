@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from brave_api.client import AsyncBrave, Brave
 from brave_api.image_search.models import ImageSearchAPIParams
-from brave_api.news_search.models import NewsSearchQueryParams
+from brave_api.news_search.models import NewsSearchApiResponse, NewsSearchQueryParams
 from brave_api.spellcheck.models import SpellcheckQueryParams, SpellcheckApiResponse
 from brave_api.suggest.models import SuggestSearchQueryParams
 from brave_api.summarizer_search.models import (
@@ -16,6 +16,7 @@ from brave_api.web_search.models import (
     LocalDescriptionsQueryParams,
     LocalSearchQueryParams,
     WebSearchQueryParams,
+    WebSearchApiResponse,
 )
 from tests.client.fakes import (
     FakeAsyncResponse,
@@ -201,3 +202,51 @@ def test_summarizer_response_is_flexible_but_typed() -> None:
 def test_summarizer_query_requires_key() -> None:
     with pytest.raises(ValidationError):
         SummarizerQueryParams(key="")
+
+
+def test_web_search_allows_numeric_video_views() -> None:
+    response = WebSearchApiResponse.model_validate(
+        {
+            "type": "search",
+            "videos": {
+                "type": "videos",
+                "results": [
+                    {
+                        "type": "video_result",
+                        "title": "Python tutorial",
+                        "url": "https://example.com/video",
+                        "description": "Learn Python",
+                        "video": {"views": 313095},
+                    }
+                ],
+            },
+        }
+    )
+
+    assert response.videos is not None
+    assert response.videos.results[0].video.views == 313095
+
+
+def test_news_search_allows_sparse_live_profiles() -> None:
+    response = NewsSearchApiResponse.model_validate(
+        {
+            "type": "news",
+            "query": {"original": "technology"},
+            "results": [
+                {
+                    "type": "news_result",
+                    "title": "Tech story",
+                    "url": "https://example.com/news",
+                    "description": "Latest technology coverage",
+                    "age": "5 days ago",
+                    "profile": {
+                        "name": "NYTimes",
+                        "url": "https://example.com/profile",
+                    },
+                }
+            ],
+        }
+    )
+
+    assert response.results[0].profile is not None
+    assert response.results[0].profile.name == "NYTimes"

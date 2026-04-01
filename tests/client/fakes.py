@@ -1,16 +1,28 @@
 from typing import Any, AsyncIterator, Iterable
 
+import niquests
+
 
 class FakeResponse:
     def __init__(
         self,
         payload: dict[str, Any] | None = None,
         lines: Iterable[str | bytes] | None = None,
+        *,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
     ):
         self.payload = payload or {}
         self.lines = list(lines or [])
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.url = "https://example.com"
 
     def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise niquests.exceptions.HTTPError(
+                f"{self.status_code} error", response=self
+            )
         return None
 
     def json(self) -> dict[str, Any]:
@@ -25,17 +37,30 @@ class FakeResponse:
         del chunk_size, decode_unicode, delimiter
         return iter(self.lines)
 
+    def close(self) -> None:
+        return None
+
 
 class FakeAsyncResponse:
     def __init__(
         self,
         payload: dict[str, Any] | None = None,
         lines: Iterable[str | bytes] | None = None,
+        *,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
     ):
         self.payload = payload or {}
         self.lines = list(lines or [])
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.url = "https://example.com"
 
     def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise niquests.exceptions.HTTPError(
+                f"{self.status_code} error", response=self
+            )
         return None
 
     def json(self) -> dict[str, Any]:
@@ -51,25 +76,36 @@ class FakeAsyncResponse:
         for line in self.lines:
             yield line
 
+    async def aclose(self) -> None:
+        return None
+
 
 class FakeSession:
-    def __init__(self, responses: list[FakeResponse]):
+    def __init__(self, responses: list[FakeResponse | Exception]):
         self.responses = responses
         self.calls: list[dict[str, Any]] = []
 
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
         self.calls.append({"url": url, **kwargs})
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        response.url = url
+        return response
 
 
 class FakeAsyncSession:
-    def __init__(self, responses: list[FakeAsyncResponse]):
+    def __init__(self, responses: list[FakeAsyncResponse | Exception]):
         self.responses = responses
         self.calls: list[dict[str, Any]] = []
 
     async def get(self, url: str, **kwargs: Any) -> FakeAsyncResponse:
         self.calls.append({"url": url, **kwargs})
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        response.url = url
+        return response
 
 
 def image_payload() -> dict[str, Any]:
