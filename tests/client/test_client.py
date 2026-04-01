@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from brave_api.client import AsyncBraveAPIClient, BraveAPIClient
+from brave_api.client import AsyncBrave, Brave
 from brave_api.image_search.models import ImageSearchAPIParams
 from brave_api.news_search.models import NewsSearchQueryParams
 from brave_api.spellcheck.models import SpellcheckQueryParams, SpellcheckApiResponse
@@ -64,7 +64,7 @@ def test_sync_client_methods_use_expected_endpoints() -> None:
             FakeResponse(lines=["event: message", 'data: {"text":"chunk"}']),
         ]
     )
-    client = BraveAPIClient(api_key="token", client=session, proxy="http://proxy")
+    client = Brave(api_key="token", client=session, proxy="http://proxy")
 
     assert client.search(WebSearchQueryParams(q="python")).type == "search"
     assert client.image_search(ImageSearchAPIParams(q="cat")).type == "images"
@@ -129,7 +129,7 @@ async def test_async_client_methods_and_streaming_work() -> None:
             FakeAsyncResponse(lines=['data: {"text":"async chunk"}']),
         ]
     )
-    client = AsyncBraveAPIClient(api_key="token", client=session)
+    client = AsyncBrave(api_key="token", client=session)
 
     web_response = await client.web_search(WebSearchQueryParams(q="python"))
     spellcheck_response = await client.spellcheck(SpellcheckQueryParams(q="helo"))

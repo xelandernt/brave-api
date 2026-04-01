@@ -22,9 +22,9 @@ pip install brave-api-client
 Pass your API key directly:
 
 ```python
-from brave_api.client import BraveAPIClient
+from brave_api.client import Brave
 
-client = BraveAPIClient(api_key="your-api-key")
+client = Brave(api_key="your-api-key")
 ```
 
 Or set `BRAVE_API_KEY`:
@@ -50,10 +50,10 @@ For Brave's official API docs and endpoint details, see:
 ### Synchronous client
 
 ```python
-from brave_api.client import BraveAPIClient
+from brave_api.client import Brave
 from brave_api.web_search.models import WebSearchQueryParams
 
-client = BraveAPIClient(api_key="your-api-key")
+client = Brave(api_key="your-api-key")
 response = client.search(WebSearchQueryParams(q="python web frameworks"))
 
 if response.web:
@@ -66,12 +66,12 @@ if response.web:
 ```python
 import asyncio
 
-from brave_api.client import AsyncBraveAPIClient
+from brave_api.client import AsyncBrave
 from brave_api.web_search.models import WebSearchQueryParams
 
 
 async def main() -> None:
-    client = AsyncBraveAPIClient(api_key="your-api-key")
+    client = AsyncBrave(api_key="your-api-key")
     response = await client.web_search(WebSearchQueryParams(q="privacy search"))
 
     if response.web:

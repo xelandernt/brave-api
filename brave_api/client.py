@@ -69,7 +69,7 @@ def _parse_streaming_event(line: str) -> SummarizerStreamingEvent:
     )
 
 
-class _BraveAPIClientBase(abc.ABC):
+class _BraveBase(abc.ABC):
     def __init__(
         self,
         base_url: str | None = None,
@@ -106,7 +106,7 @@ class _BraveAPIClientBase(abc.ABC):
         return model.model_validate(payload)
 
 
-class AsyncBraveAPIClient(_BraveAPIClientBase):
+class AsyncBrave(_BraveBase):
     """Async Brave Search API client backed by `niquests.AsyncSession`."""
 
     def __init__(
@@ -237,7 +237,7 @@ class AsyncBraveAPIClient(_BraveAPIClientBase):
                 yield _parse_streaming_event(line)
 
 
-class BraveAPIClient(_BraveAPIClientBase):
+class Brave(_BraveBase):
     """Synchronous Brave Search API client backed by `niquests.Session`."""
 
     def __init__(
