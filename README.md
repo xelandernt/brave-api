@@ -1,5 +1,11 @@
 # brave-api
 
+
+[![MyPy Strict](https://img.shields.io/badge/mypy-strict-blue)](https://mypy.readthedocs.io/en/stable/getting_started.html#strict-mode-and-configuration)
+[![Supported versions](https://img.shields.io/pypi/pyversions/that-depends.svg)](https://pypi.python.org/pypi/brave-api-client)
+[![PyPI Downloads](https://static.pepy.tech/badge/brave-api-client/month)](https://pepy.tech/brave-api-client/that-depends)
+[![GitHub stars](https://img.shields.io/github/stars/xelandernt/brave-api)](https://github.com/xelandernt/brave-api/stargazers)
+
 Typed Python client for the Brave Search API.
 
 This package uses `niquests` for HTTP transport and `pydantic` models for
