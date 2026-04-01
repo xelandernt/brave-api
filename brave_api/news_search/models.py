@@ -2,12 +2,8 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from brave_api.web_search.models import (
-    NewsResult,
-    Query,
-    _validate_freshness,
-    _validate_query_word_limit,
-)
+from brave_api.util import validate_query_word_limit, validate_freshness
+from brave_api.web_search.models import NewsResult, Query
 
 
 class NewsSearchQueryParams(BaseModel):
@@ -26,12 +22,12 @@ class NewsSearchQueryParams(BaseModel):
     @field_validator("q")
     @classmethod
     def validate_q_word_limit(cls, v: str) -> str:
-        return _validate_query_word_limit(v)
+        return validate_query_word_limit(v)
 
     @field_validator("freshness")
     @classmethod
     def validate_freshness(cls, v: Optional[str]) -> Optional[str]:
-        return _validate_freshness(v)
+        return validate_freshness(v)
 
     @field_validator("country")
     @classmethod

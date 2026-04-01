@@ -2,7 +2,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from brave_api.web_search.models import _validate_query_word_limit
+from brave_api.util import validate_query_word_limit
 
 
 class SpellcheckQueryParams(BaseModel):
@@ -13,7 +13,7 @@ class SpellcheckQueryParams(BaseModel):
     @field_validator("q")
     @classmethod
     def validate_q_word_limit(cls, v: str) -> str:
-        return _validate_query_word_limit(v)
+        return validate_query_word_limit(v)
 
 
 class SpellcheckQuery(BaseModel):

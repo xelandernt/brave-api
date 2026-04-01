@@ -2,30 +2,14 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from brave_api.util import validate_query_word_limit, validate_freshness
 from brave_api.web_search.models import (
     Query,
     VideoResult,
-    _validate_freshness,
-    _validate_query_word_limit,
 )
 
 
 class VideoSearchQueryParams(BaseModel):
-    """
-    Validated query parameters for Brave video search.
-
-    Example:
-
-    ```python
-    VideoSearchQueryParams(
-        q="machine learning tutorial",
-        count=20,
-        freshness="pm",
-        safesearch="moderate",
-    )
-    ```
-    """
-
     q: str = Field(..., min_length=1, max_length=400)
     search_lang: Optional[str] = Field("en", min_length=2)
     ui_lang: Optional[str] = Field("en-US")
@@ -40,12 +24,12 @@ class VideoSearchQueryParams(BaseModel):
     @field_validator("q")
     @classmethod
     def validate_q_word_limit(cls, v: str) -> str:
-        return _validate_query_word_limit(v)
+        return validate_query_word_limit(v)
 
     @field_validator("freshness")
     @classmethod
     def validate_freshness(cls, v: Optional[str]) -> Optional[str]:
-        return _validate_freshness(v)
+        return validate_freshness(v)
 
     @field_validator("country")
     @classmethod

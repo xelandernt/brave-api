@@ -4,13 +4,13 @@ from pydantic import ValidationError
 from brave_api.image_search.models import ImageSearchAPIParams
 from brave_api.news_search.models import NewsSearchQueryParams
 from brave_api.suggest.models import SuggestSearchApiResponse, SuggestSearchQueryParams
-from brave_api.video_search.models import VideoSearchQueryParams
-from brave_api.web_search.models import (
-    _validate_date_range,
-    _validate_freshness,
-    _validate_location_ids,
-    _validate_result_filter,
+from brave_api.util import (
+    validate_date_range,
+    validate_freshness,
+    validate_result_filter,
+    validate_location_ids,
 )
+from brave_api.video_search.models import VideoSearchQueryParams
 
 
 def test_image_search_validators_reject_invalid_word_count_and_country() -> None:
@@ -49,13 +49,13 @@ def test_suggest_validators_reject_invalid_inputs_and_type() -> None:
 
 
 def test_web_search_helper_validators_cover_optional_and_error_paths() -> None:
-    assert _validate_date_range("2024-13-01to2024-01-31") is False
-    assert _validate_freshness(None) is None
-    assert _validate_freshness("") == ""
-    assert _validate_result_filter(None) is None
+    assert validate_date_range("2024-13-01to2024-01-31") is False
+    assert validate_freshness(None) is None
+    assert validate_freshness("") == ""
+    assert validate_result_filter(None) is None
 
     with pytest.raises(ValueError):
-        _validate_result_filter(" , ")
+        validate_result_filter(" , ")
 
     with pytest.raises(ValueError):
-        _validate_location_ids([])
+        validate_location_ids([])

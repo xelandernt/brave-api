@@ -6,22 +6,6 @@ from brave_api.web_search.models import MetaUrl, Thumbnail
 
 
 class ImageSearchAPIParams(BaseModel):
-    """
-    Validated query parameters for Brave image search.
-
-    Example:
-
-    ```python
-    ImageSearchAPIParams(
-        q="modern architecture",
-        country="ALL",
-        search_lang="en",
-        count=50,
-        safesearch="strict",
-    )
-    ```
-    """
-
     q: str = Field(
         ...,
         min_length=1,
