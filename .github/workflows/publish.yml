@@ -15,6 +15,7 @@ jobs:
         - uses: astral-sh/setup-uv@v7
           with:
               cache-dependency-glob: "**/pyproject.toml"
+        - run: just install
         - run: just test
           env:
             BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
