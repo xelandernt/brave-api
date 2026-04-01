@@ -6,7 +6,21 @@ on:
         - published
 
 jobs:
+  test_live:
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+        - uses: actions/checkout@v6
+        - uses: extractions/setup-just@v3
+        - uses: astral-sh/setup-uv@v7
+          with:
+              cache-dependency-glob: "**/pyproject.toml"
+        - run: just test
+          env:
+            BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+
   publish:
+    needs: test_live
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
