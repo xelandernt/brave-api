@@ -43,8 +43,7 @@ export BRAVE_API_KEY=your-api-key
 For Brave's official API docs and endpoint details, see:
 
 - [Brave Search API documentation](https://api-dashboard.search.brave.com/documentation)
-- [Brave Search API quickstart](https://api-dashboard.search.brave.com/documentation/quickstart)
-- [Brave web search get started](https://api-dashboard.search.brave.com/app/documentation/web-search/get-started)
+- [Brave Search API Spec](https://api-dashboard.search.brave.com/api-reference/web/search/get)
 
 ## Quick start
 
@@ -88,23 +87,23 @@ asyncio.run(main())
 All methods below are available on both `BraveAPIClient` and
 `AsyncBraveAPIClient`. Async methods use the same names and are awaited.
 
-| API group | Brave endpoint(s) | Client methods | Request model(s) | Response model(s) |
-| --- | --- | --- | --- | --- |
-| Web search | `/res/v1/web/search` | `search()`, `web_search()` | `WebSearchQueryParams` | `WebSearchApiResponse` |
-| Image search | `/res/v1/images/search` | `image_search()`, `images()` | `ImageSearchAPIParams` | `ImageSearchApiResponse` |
-| News search | `/res/v1/news/search` | `news_search()`, `news()` | `NewsSearchQueryParams` | `NewsSearchApiResponse` |
-| Video search | `/res/v1/videos/search` | `video_search()`, `videos()` | `VideoSearchQueryParams` | `VideoSearchApiResponse` |
-| Spellcheck | `/res/v1/spellcheck/search` | `spellcheck()` | `SpellcheckQueryParams` | `SpellcheckApiResponse` |
-| Suggest | `/res/v1/suggest/search` | `suggest()`, `suggest_search()` | `SuggestSearchQueryParams` | `SuggestSearchApiResponse` |
-| Local points of interest | `/res/v1/local/pois` | `local_pois()` | `LocalSearchQueryParams` | `LocalPoiSearchApiResponse` |
-| Local descriptions | `/res/v1/local/descriptions` | `local_descriptions()` | `LocalDescriptionsQueryParams` | `LocalDescriptionsSearchApiResponse` |
-| Summarizer search | `/res/v1/summarizer/search` | `summarizer_search()` | `SummarizerQueryParams` | `SummarizerSearchApiResponse` |
-| Summarizer summary | `/res/v1/summarizer/summary` | `summarizer_summary()` | `SummarizerQueryParams` | `SummarizerSummaryApiResponse` |
-| Summarizer title | `/res/v1/summarizer/title` | `summarizer_title()` | `SummarizerQueryParams` | `SummarizerTitleApiResponse` |
-| Summarizer enrichments | `/res/v1/summarizer/enrichments` | `summarizer_enrichments()` | `SummarizerQueryParams` | `SummarizerEnrichmentsApiResponse` |
-| Summarizer followups | `/res/v1/summarizer/followups` | `summarizer_followups()` | `SummarizerQueryParams` | `SummarizerFollowupsApiResponse` |
-| Summarizer entity info | `/res/v1/summarizer/entity_info` | `summarizer_entity_info()` | `SummarizerEntityInfoQueryParams` | `SummarizerEntityInfoApiResponse` |
-| Summarizer streaming | `/res/v1/summarizer/summary_streaming` | `summarizer_summary_streaming()` | `SummarizerQueryParams` | `Iterator[SummarizerStreamingEvent]` / `AsyncIterator[SummarizerStreamingEvent]` |
+| API group                | Brave endpoint(s)                      | Client methods                   | Request model(s)                  | Response model(s)                                                                |
+|--------------------------|----------------------------------------|----------------------------------|-----------------------------------|----------------------------------------------------------------------------------|
+| Web search               | `/res/v1/web/search`                   | `search()`, `web_search()`       | `WebSearchQueryParams`            | `WebSearchApiResponse`                                                           |
+| Image search             | `/res/v1/images/search`                | `image_search()`, `images()`     | `ImageSearchAPIParams`            | `ImageSearchApiResponse`                                                         |
+| News search              | `/res/v1/news/search`                  | `news_search()`, `news()`        | `NewsSearchQueryParams`           | `NewsSearchApiResponse`                                                          |
+| Video search             | `/res/v1/videos/search`                | `video_search()`, `videos()`     | `VideoSearchQueryParams`          | `VideoSearchApiResponse`                                                         |
+| Spellcheck               | `/res/v1/spellcheck/search`            | `spellcheck()`                   | `SpellcheckQueryParams`           | `SpellcheckApiResponse`                                                          |
+| Suggest                  | `/res/v1/suggest/search`               | `suggest()`, `suggest_search()`  | `SuggestSearchQueryParams`        | `SuggestSearchApiResponse`                                                       |
+| Local points of interest | `/res/v1/local/pois`                   | `local_pois()`                   | `LocalSearchQueryParams`          | `LocalPoiSearchApiResponse`                                                      |
+| Local descriptions       | `/res/v1/local/descriptions`           | `local_descriptions()`           | `LocalDescriptionsQueryParams`    | `LocalDescriptionsSearchApiResponse`                                             |
+| Summarizer search        | `/res/v1/summarizer/search`            | `summarizer_search()`            | `SummarizerQueryParams`           | `SummarizerSearchApiResponse`                                                    |
+| Summarizer summary       | `/res/v1/summarizer/summary`           | `summarizer_summary()`           | `SummarizerQueryParams`           | `SummarizerSummaryApiResponse`                                                   |
+| Summarizer title         | `/res/v1/summarizer/title`             | `summarizer_title()`             | `SummarizerQueryParams`           | `SummarizerTitleApiResponse`                                                     |
+| Summarizer enrichments   | `/res/v1/summarizer/enrichments`       | `summarizer_enrichments()`       | `SummarizerQueryParams`           | `SummarizerEnrichmentsApiResponse`                                               |
+| Summarizer followups     | `/res/v1/summarizer/followups`         | `summarizer_followups()`         | `SummarizerQueryParams`           | `SummarizerFollowupsApiResponse`                                                 |
+| Summarizer entity info   | `/res/v1/summarizer/entity_info`       | `summarizer_entity_info()`       | `SummarizerEntityInfoQueryParams` | `SummarizerEntityInfoApiResponse`                                                |
+| Summarizer streaming     | `/res/v1/summarizer/summary_streaming` | `summarizer_summary_streaming()` | `SummarizerQueryParams`           | `Iterator[SummarizerStreamingEvent]` / `AsyncIterator[SummarizerStreamingEvent]` |
 
 Aliases:
 
@@ -143,11 +142,3 @@ or descriptions.
 The package includes typed support for Brave's summarizer-related endpoints,
 including summary retrieval, streaming output, enrichments, followups, titles,
 and entity information.
-
-## Additional notes
-
-- Both sync and async clients accept an optional `proxy` argument.
-- HTTP errors are surfaced through `niquests`.
-- Request and response validation errors are surfaced through `pydantic`.
-- For endpoint-specific behavior and the latest API details, use the official
-  Brave documentation linked above.
