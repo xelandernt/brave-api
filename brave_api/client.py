@@ -179,31 +179,19 @@ class AsyncBrave(_BraveBase):
         response = await self._request(path, query)
         return self._validate_response(model, response.json())
 
-    async def search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
-        return await self.web_search(query)
-
     async def web_search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
         return await self._get("/web/search", query, WebSearchApiResponse)
 
     async def image_search(self, query: ImageSearchAPIParams) -> ImageSearchApiResponse:
         return await self._get("/images/search", query, ImageSearchApiResponse)
 
-    async def images(self, query: ImageSearchAPIParams) -> ImageSearchApiResponse:
-        return await self.image_search(query)
-
     async def news_search(self, query: NewsSearchQueryParams) -> NewsSearchApiResponse:
         return await self._get("/news/search", query, NewsSearchApiResponse)
-
-    async def news(self, query: NewsSearchQueryParams) -> NewsSearchApiResponse:
-        return await self.news_search(query)
 
     async def video_search(
         self, query: VideoSearchQueryParams
     ) -> VideoSearchApiResponse:
         return await self._get("/videos/search", query, VideoSearchApiResponse)
-
-    async def videos(self, query: VideoSearchQueryParams) -> VideoSearchApiResponse:
-        return await self.video_search(query)
 
     async def spellcheck(self, query: SpellcheckQueryParams) -> SpellcheckApiResponse:
         return await self._get("/spellcheck/search", query, SpellcheckApiResponse)
@@ -212,11 +200,6 @@ class AsyncBrave(_BraveBase):
         self, query: SuggestSearchQueryParams
     ) -> SuggestSearchApiResponse:
         return await self._get("/suggest/search", query, SuggestSearchApiResponse)
-
-    async def suggest_search(
-        self, query: SuggestSearchQueryParams
-    ) -> SuggestSearchApiResponse:
-        return await self.suggest(query)
 
     async def local_pois(
         self, query: LocalSearchQueryParams
@@ -347,40 +330,23 @@ class Brave(_BraveBase):
         response = self._request(path, query)
         return self._validate_response(model, response.json())
 
-    def search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
-        return self.web_search(query)
-
     def web_search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
         return self._get("/web/search", query, WebSearchApiResponse)
 
     def image_search(self, query: ImageSearchAPIParams) -> ImageSearchApiResponse:
         return self._get("/images/search", query, ImageSearchApiResponse)
 
-    def images(self, query: ImageSearchAPIParams) -> ImageSearchApiResponse:
-        return self.image_search(query)
-
     def news_search(self, query: NewsSearchQueryParams) -> NewsSearchApiResponse:
         return self._get("/news/search", query, NewsSearchApiResponse)
 
-    def news(self, query: NewsSearchQueryParams) -> NewsSearchApiResponse:
-        return self.news_search(query)
-
     def video_search(self, query: VideoSearchQueryParams) -> VideoSearchApiResponse:
         return self._get("/videos/search", query, VideoSearchApiResponse)
-
-    def videos(self, query: VideoSearchQueryParams) -> VideoSearchApiResponse:
-        return self.video_search(query)
 
     def spellcheck(self, query: SpellcheckQueryParams) -> SpellcheckApiResponse:
         return self._get("/spellcheck/search", query, SpellcheckApiResponse)
 
     def suggest(self, query: SuggestSearchQueryParams) -> SuggestSearchApiResponse:
         return self._get("/suggest/search", query, SuggestSearchApiResponse)
-
-    def suggest_search(
-        self, query: SuggestSearchQueryParams
-    ) -> SuggestSearchApiResponse:
-        return self.suggest(query)
 
     def local_pois(self, query: LocalSearchQueryParams) -> LocalPoiSearchApiResponse:
         return self._get("/local/pois", query, LocalPoiSearchApiResponse)

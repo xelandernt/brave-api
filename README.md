@@ -179,14 +179,6 @@ All methods below are available on both `BraveAPIClient` and
 | Summarizer entity info   | `/res/v1/summarizer/entity_info`       | `summarizer_entity_info()`       | `SummarizerEntityInfoQueryParams` | `SummarizerEntityInfoApiResponse`                                                |
 | Summarizer streaming     | `/res/v1/summarizer/summary_streaming` | `summarizer_summary_streaming()` | `SummarizerQueryParams`           | `Iterator[SummarizerStreamingEvent]` / `AsyncIterator[SummarizerStreamingEvent]` |
 
-Aliases:
-
-- `search()` is an alias for `web_search()`
-- `images()` is an alias for `image_search()`
-- `news()` is an alias for `news_search()`
-- `videos()` is an alias for `video_search()`
-- `suggest_search()` is an alias for `suggest()`
-
 ## API overview
 
 ### Web search
