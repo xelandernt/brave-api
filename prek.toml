@@ -42,7 +42,7 @@ rev = "v1.20.0"
 hooks = [
   {
     id = "mypy",
-    additional_dependencies = ["pydantic", "pytest"]
+    additional_dependencies = ["pydantic", "pytest", "niquests"]
   }
 ]
 
