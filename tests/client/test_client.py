@@ -1,3 +1,4 @@
+import niquests
 import pytest
 from pydantic import ValidationError
 
@@ -19,10 +20,10 @@ from brave_api.web_search.models import (
     WebSearchApiResponse,
 )
 from tests.client.fakes import (
+    AsyncGetStub,
     FakeAsyncResponse,
-    FakeAsyncSession,
     FakeResponse,
-    FakeSession,
+    SyncGetStub,
     image_payload,
     news_payload,
     suggest_payload,
@@ -30,8 +31,11 @@ from tests.client.fakes import (
 )
 
 
-def test_sync_client_methods_use_expected_endpoints() -> None:
-    session = FakeSession(
+def test_sync_client_methods_use_expected_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.Session()
+    get = SyncGetStub(
         [
             FakeResponse({"type": "search"}),
             FakeResponse(image_payload()),
@@ -65,38 +69,71 @@ def test_sync_client_methods_use_expected_endpoints() -> None:
             FakeResponse(lines=["event: message", 'data: {"text":"chunk"}']),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = Brave(api_key="token", client=session, proxy="http://proxy")
 
-    assert client.search(WebSearchQueryParams(q="python")).type == "search"
-    assert client.image_search(ImageSearchAPIParams(q="cat")).type == "images"
-    assert client.news_search(NewsSearchQueryParams(q="climate")).type == "news"
-    assert client.video_search(VideoSearchQueryParams(q="tutorial")).type == "videos"
-    assert client.spellcheck(SpellcheckQueryParams(q="helo")).type == "spellcheck"
-    assert client.suggest(SuggestSearchQueryParams(q="pyth")).type == "suggest"
-    assert client.local_pois(LocalSearchQueryParams(ids=["loc-1"])).type == "local_pois"
+    assert client.web_search(WebSearchQueryParams(q="python")).parsed_data.type == (
+        "search"
+    )
+    assert client.image_search(ImageSearchAPIParams(q="cat")).parsed_data.type == (
+        "images"
+    )
+    assert client.news_search(NewsSearchQueryParams(q="climate")).parsed_data.type == (
+        "news"
+    )
     assert (
-        client.local_descriptions(LocalDescriptionsQueryParams(ids=["loc-1"])).type
+        client.video_search(VideoSearchQueryParams(q="tutorial")).parsed_data.type
+        == "videos"
+    )
+    assert client.spellcheck(SpellcheckQueryParams(q="helo")).parsed_data.type == (
+        "spellcheck"
+    )
+    assert client.suggest(SuggestSearchQueryParams(q="pyth")).parsed_data.type == (
+        "suggest"
+    )
+    assert client.local_pois(
+        LocalSearchQueryParams(ids=["loc-1"])
+    ).parsed_data.type == ("local_pois")
+    assert (
+        client.local_descriptions(
+            LocalDescriptionsQueryParams(ids=["loc-1"])
+        ).parsed_data.type
         == "local_descriptions"
     )
-    assert client.summarizer_search(SummarizerQueryParams(key="k")).title == "Summary"
-    assert client.summarizer_summary(SummarizerQueryParams(key="k")).summary == "Hello"
-    assert client.summarizer_title(SummarizerQueryParams(key="k")).title == "Summary"
-    enrichments_response = client.summarizer_enrichments(SummarizerQueryParams(key="k"))
+    assert (
+        client.summarizer_search(SummarizerQueryParams(key="k")).parsed_data.title
+        == "Summary"
+    )
+    assert (
+        client.summarizer_summary(SummarizerQueryParams(key="k")).parsed_data.summary
+        == "Hello"
+    )
+    assert (
+        client.summarizer_title(SummarizerQueryParams(key="k")).parsed_data.title
+        == "Summary"
+    )
+    enrichments_response = client.summarizer_enrichments(
+        SummarizerQueryParams(key="k")
+    ).parsed_data
     assert enrichments_response.enrichments is not None
     assert enrichments_response.enrichments.raw_summary == "Hello"
-    assert client.summarizer_followups(SummarizerQueryParams(key="k")).followups == [
-        "Next question"
-    ]
+    assert client.summarizer_followups(
+        SummarizerQueryParams(key="k")
+    ).parsed_data.followups == ["Next question"]
     entity_info_response = client.summarizer_entity_info(
         SummarizerEntityInfoQueryParams(key="k")
-    )
+    ).parsed_data
     assert entity_info_response.entities_info is not None
     assert entity_info_response.entities_info[0].name == "K2"
-    stream = list(client.summarizer_summary_streaming(SummarizerQueryParams(key="k")))
+    stream = list(
+        client.summarizer_summary_streaming(
+            SummarizerQueryParams(key="k")
+        ).iter_lines_parsed()
+    )
     assert stream[0].event == "message"
     assert stream[1].text == "chunk"
 
-    assert [call["url"] for call in session.calls] == [
+    assert [call["url"] for call in get.calls] == [
         "https://api.search.brave.com/res/v1/web/search",
         "https://api.search.brave.com/res/v1/images/search",
         "https://api.search.brave.com/res/v1/news/search",
@@ -114,38 +151,45 @@ def test_sync_client_methods_use_expected_endpoints() -> None:
         "https://api.search.brave.com/res/v1/summarizer/summary_streaming",
     ]
     assert all(
-        call["headers"]["X-Subscription-Token"] == "token" for call in session.calls
+        call["headers"] is not None
+        and call["headers"]["X-Subscription-Token"] == "token"
+        for call in get.calls
     )
-    assert all(call["proxies"] == "http://proxy" for call in session.calls)
-    assert session.calls[-1]["stream"] is True
+    assert all(
+        call["proxies"] == {"http": "http://proxy", "https": "http://proxy"}
+        for call in get.calls
+    )
+    assert get.calls[-1]["stream"] is True
 
 
-async def test_async_client_methods_and_streaming_work() -> None:
-    session = FakeAsyncSession(
+async def test_async_client_methods_and_streaming_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.AsyncSession()
+    get = AsyncGetStub(
         [
-            FakeAsyncResponse({"type": "search"}),
-            FakeAsyncResponse(
+            FakeResponse({"type": "search"}),
+            FakeResponse(
                 {"type": "spellcheck", "query": {"original": "helo"}, "results": []}
             ),
             FakeAsyncResponse(lines=['data: {"text":"async chunk"}']),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = AsyncBrave(api_key="token", client=session)
 
     web_response = await client.web_search(WebSearchQueryParams(q="python"))
     spellcheck_response = await client.spellcheck(SpellcheckQueryParams(q="helo"))
-    stream = [
-        event
-        async for event in client.summarizer_summary_streaming(
-            SummarizerQueryParams(key="k")
-        )
-    ]
+    stream_response = await client.summarizer_summary_streaming(
+        SummarizerQueryParams(key="k")
+    )
+    stream = [event async for event in stream_response.iter_lines_parsed()]
 
-    assert web_response.type == "search"
-    assert spellcheck_response.type == "spellcheck"
+    assert web_response.parsed_data.type == "search"
+    assert spellcheck_response.parsed_data.type == "spellcheck"
     assert stream[0].text == "async chunk"
-    assert session.calls[0]["url"] == "https://api.search.brave.com/res/v1/web/search"
-    assert session.calls[2]["stream"] is True
+    assert get.calls[0]["url"] == "https://api.search.brave.com/res/v1/web/search"
+    assert get.calls[2]["stream"] is True
 
 
 def test_news_search_query_params_validate_freshness() -> None:

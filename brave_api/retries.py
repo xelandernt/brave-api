@@ -2,7 +2,7 @@ import abc
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Final
+from typing import Final
 
 import niquests
 
@@ -25,7 +25,7 @@ class RetryStrategy(abc.ABC):
         self,
         attempt: int,
         *,
-        response: Any | None = None,
+        response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
         """Get the next retry delay."""
@@ -43,7 +43,7 @@ class FixedDelayRetryStrategy(RetryStrategy):
         self,
         attempt: int,
         *,
-        response: Any | None = None,
+        response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
         del attempt, response, error
@@ -68,7 +68,7 @@ class ExponentialBackoffRetryStrategy(RetryStrategy):
         self,
         attempt: int,
         *,
-        response: Any | None = None,
+        response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
         del response, error
@@ -106,7 +106,7 @@ class RetryAfterRetryStrategy(RetryStrategy):
         self,
         attempt: int,
         *,
-        response: Any | None = None,
+        response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
         del error

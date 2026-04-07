@@ -1,17 +1,21 @@
+from __future__ import annotations
+
 import abc
 import asyncio
 import json
 import os
 import time
-from typing import Any, Optional, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 import niquests
 from pydantic import BaseModel
 
-from brave_api import AsyncResponse, Response
 from brave_api.constants import BRAVE_API_KEY_ENV_VAR
 from brave_api.image_search.models import ImageSearchAPIParams, ImageSearchApiResponse
 from brave_api.news_search.models import NewsSearchApiResponse, NewsSearchQueryParams
+from brave_api.response import AsyncResponse, Response
+from brave_api.retries import RetryConfig
 from brave_api.spellcheck.models import SpellcheckApiResponse, SpellcheckQueryParams
 from brave_api.suggest.models import SuggestSearchApiResponse, SuggestSearchQueryParams
 from brave_api.summarizer_search.models import (
@@ -34,20 +38,70 @@ from brave_api.web_search.models import (
     WebSearchApiResponse,
     WebSearchQueryParams,
 )
-from brave_api.retries import RetryConfig
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
+
+HeadersMap = dict[str, str]
+JsonObject = dict[str, object]
+ProxyConfig = dict[str, str]
+QueryParamValue = str | list[str] | None
+QueryParams = dict[str, QueryParamValue]
 
 
 def _get_api_key_from_env() -> str | None:
     return os.getenv(BRAVE_API_KEY_ENV_VAR)
 
 
+def _coerce_json_object(value: object) -> JsonObject | None:
+    if not isinstance(value, dict):
+        return None
+
+    payload: JsonObject = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise TypeError(f"JSON object keys must be strings, got {type(key)!r}")
+        payload[key] = _coerce_json_value(item)
+    return payload
+
+
+def _coerce_json_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_coerce_json_value(item) for item in value]
+
+    parsed_object = _coerce_json_object(value)
+    if parsed_object is not None:
+        return parsed_object
+
+    raise TypeError(f"Unsupported JSON value type: {type(value)!r}")
+
+
+def _normalize_query_item(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    raise TypeError(f"Unsupported query list item type: {type(value)!r}")
+
+
+def _normalize_query_value(value: object) -> QueryParamValue:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return [_normalize_query_item(item) for item in value]
+    raise TypeError(f"Unsupported query parameter type: {type(value)!r}")
+
+
 def _parse_streaming_event(line: str) -> SummarizerStreamingEvent:
-    event: Optional[str] = None
+    event: str | None = None
     payload = line
-    text: Optional[str] = None
-    parsed_json: Optional[dict[str, Any]] = None
+    text: str | None = None
+    parsed_json: JsonObject | None = None
 
     if line.startswith("event:"):
         event = line.split(":", 1)[1].strip()
@@ -57,19 +111,27 @@ def _parse_streaming_event(line: str) -> SummarizerStreamingEvent:
 
     if payload:
         try:
-            data = json.loads(payload)
-            if isinstance(data, dict):
-                parsed_json = data
-                maybe_text = data.get("text") or data.get("content") or data.get("data")
+            loaded_payload: object = json.loads(payload)
+        except json.JSONDecodeError:
+            text = payload
+        else:
+            parsed_json = _coerce_json_object(loaded_payload)
+            if parsed_json is not None:
+                maybe_text = (
+                    parsed_json.get("text")
+                    or parsed_json.get("content")
+                    or parsed_json.get("data")
+                )
                 if isinstance(maybe_text, str):
                     text = maybe_text
             else:
                 text = payload
-        except json.JSONDecodeError:
-            text = payload
 
     return SummarizerStreamingEvent(
-        raw=line, event=event, text=text, payload_json=parsed_json
+        raw=line,
+        event=event,
+        text=text,
+        payload_json=parsed_json,
     )
 
 
@@ -81,7 +143,7 @@ class _BraveBase(abc.ABC):
         api_key: str | None = None,
         proxy: str | None = None,
         retry_config: RetryConfig | None = None,
-    ):
+    ) -> None:
         self.base_url = base_url or "https://api.search.brave.com/res/v1"
         self._provided_api_key = api_key
         self._proxy = proxy
@@ -92,19 +154,42 @@ class _BraveBase(abc.ABC):
 
     def _build_request(
         self, path: str, query_params: BaseModel
-    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+    ) -> tuple[str, HeadersMap, QueryParams]:
         api_key = self._provided_api_key or _get_api_key_from_env()
         if not api_key:
             raise ValueError(
                 "API key is required. Set it via environment variable BRAVE_API_KEY or pass it to the client."
             )
 
-        headers = {
+        headers: HeadersMap = {
             "Accept": "application/json",
             "X-Subscription-Token": api_key,
         }
-        params = query_params.model_dump(exclude_none=True, exclude_unset=True)
+        params: QueryParams = {}
+        for key, value in query_params.model_dump(
+            exclude_none=True,
+            exclude_unset=True,
+        ).items():
+            params[key] = _normalize_query_value(value)
         return self._build_url(path), headers, params
+
+    def _build_proxies(self) -> ProxyConfig | None:
+        if self._proxy is None:
+            return None
+        return {
+            "http": self._proxy,
+            "https": self._proxy,
+        }
+
+    def _should_retry_status(
+        self, status_code: int | None, attempt: int, attempts: int
+    ) -> bool:
+        return (
+            self._retry_config is not None
+            and attempt < attempts
+            and status_code is not None
+            and self._retry_config.should_retry_status(status_code)
+        )
 
 
 class AsyncBrave(_BraveBase):
@@ -112,30 +197,29 @@ class AsyncBrave(_BraveBase):
 
     def __init__(
         self,
-        client: Optional[niquests.AsyncSession] = None,
+        client: niquests.AsyncSession | None = None,
         *,
         base_url: str | None = None,
         api_key: str | None = None,
         proxy: str | None = None,
         retry_config: RetryConfig | None = None,
-    ):
+    ) -> None:
         super().__init__(
             base_url=base_url,
             api_key=api_key,
             proxy=proxy,
             retry_config=retry_config,
         )
-        self._client = client if client else niquests.AsyncSession()
+        self._client = client if client is not None else niquests.AsyncSession()
 
     async def _request(
         self,
         path: str,
         query: BaseModel,
-        *,
-        stream: bool = False,
         response_model: type[ResponseModelT],
-    ) -> AsyncResponse[ResponseModelT]:
+    ) -> Response[ResponseModelT]:
         url, headers, query_params = self._build_request(path, query)
+        proxies = self._build_proxies()
         attempts = self._retry_config.max_attempts if self._retry_config else 1
         retryable_exceptions = (
             self._retry_config.retryable_exceptions if self._retry_config else ()
@@ -143,12 +227,12 @@ class AsyncBrave(_BraveBase):
 
         for attempt in range(1, attempts + 1):
             try:
-                response = await self._client.get(
+                response: niquests.Response = await self._client.get(
                     url,
                     headers=headers,
                     params=query_params,
-                    proxies=self._proxy,
-                    stream=stream,
+                    proxies=proxies,
+                    stream=False,
                 )
             except retryable_exceptions as error:
                 if self._retry_config is None or attempt == attempts:
@@ -158,173 +242,14 @@ class AsyncBrave(_BraveBase):
                 )
                 continue
 
-            if (
-                self._retry_config is not None
-                and attempt < attempts
-                and self._retry_config.should_retry_status(response.status_code)
+            retry_config = self._retry_config
+            if retry_config is not None and self._should_retry_status(
+                response.status_code,
+                attempt,
+                attempts,
             ):
                 await asyncio.sleep(
-                    self._retry_config.strategy.get_delay(attempt, response=response)
-                )
-                continue
-
-            response.raise_for_status()
-            return AsyncResponse(response, response_model)
-
-        raise AssertionError("unreachable")
-
-    async def _get(
-        self, path: str, query: BaseModel, model: type[ResponseModelT]
-    ) -> AsyncResponse[ResponseModelT]:
-        return await self._request(path, query, response_model=model)
-
-    async def web_search(
-        self, query: WebSearchQueryParams
-    ) -> AsyncResponse[WebSearchApiResponse]:
-        return await self._get("/web/search", query, WebSearchApiResponse)
-
-    async def image_search(
-        self, query: ImageSearchAPIParams
-    ) -> AsyncResponse[ImageSearchApiResponse]:
-        return await self._get("/images/search", query, ImageSearchApiResponse)
-
-    async def news_search(
-        self, query: NewsSearchQueryParams
-    ) -> AsyncResponse[NewsSearchApiResponse]:
-        return await self._get("/news/search", query, NewsSearchApiResponse)
-
-    async def video_search(
-        self, query: VideoSearchQueryParams
-    ) -> AsyncResponse[VideoSearchApiResponse]:
-        return await self._get("/videos/search", query, VideoSearchApiResponse)
-
-    async def spellcheck(
-        self, query: SpellcheckQueryParams
-    ) -> AsyncResponse[SpellcheckApiResponse]:
-        return await self._get("/spellcheck/search", query, SpellcheckApiResponse)
-
-    async def suggest(
-        self, query: SuggestSearchQueryParams
-    ) -> AsyncResponse[SuggestSearchApiResponse]:
-        return await self._get("/suggest/search", query, SuggestSearchApiResponse)
-
-    async def local_pois(
-        self, query: LocalSearchQueryParams
-    ) -> AsyncResponse[LocalPoiSearchApiResponse]:
-        return await self._get("/local/pois", query, LocalPoiSearchApiResponse)
-
-    async def local_descriptions(
-        self, query: LocalDescriptionsQueryParams
-    ) -> AsyncResponse[LocalDescriptionsSearchApiResponse]:
-        return await self._get(
-            "/local/descriptions", query, LocalDescriptionsSearchApiResponse
-        )
-
-    async def summarizer_search(
-        self, query: SummarizerQueryParams
-    ) -> AsyncResponse[SummarizerSearchApiResponse]:
-        return await self._get("/summarizer/search", query, SummarizerSearchApiResponse)
-
-    async def summarizer_summary(
-        self, query: SummarizerQueryParams
-    ) -> AsyncResponse[SummarizerSummaryApiResponse]:
-        return await self._get(
-            "/summarizer/summary", query, SummarizerSummaryApiResponse
-        )
-
-    async def summarizer_title(
-        self, query: SummarizerQueryParams
-    ) -> AsyncResponse[SummarizerTitleApiResponse]:
-        return await self._get("/summarizer/title", query, SummarizerTitleApiResponse)
-
-    async def summarizer_enrichments(
-        self, query: SummarizerQueryParams
-    ) -> AsyncResponse[SummarizerEnrichmentsApiResponse]:
-        return await self._get(
-            "/summarizer/enrichments", query, SummarizerEnrichmentsApiResponse
-        )
-
-    async def summarizer_followups(
-        self, query: SummarizerQueryParams
-    ) -> AsyncResponse[SummarizerFollowupsApiResponse]:
-        return await self._get(
-            "/summarizer/followups", query, SummarizerFollowupsApiResponse
-        )
-
-    async def summarizer_entity_info(
-        self, query: SummarizerEntityInfoQueryParams
-    ) -> AsyncResponse[SummarizerEntityInfoApiResponse]:
-        return await self._get(
-            "/summarizer/entity_info", query, SummarizerEntityInfoApiResponse
-        )
-
-    async def summarizer_summary_streaming(
-        self, query: SummarizerQueryParams
-    ) -> AsyncResponse[SummarizerStreamingEvent]:
-        return await self._request(
-            "/summarizer/summary_streaming",
-            query,
-            stream=True,
-            response_model=SummarizerStreamingEvent,
-        )
-
-
-class Brave(_BraveBase):
-    """Synchronous Brave Search API client backed by `niquests.Session`."""
-
-    def __init__(
-        self,
-        client: Optional[niquests.Session] = None,
-        *,
-        base_url: str | None = None,
-        api_key: str | None = None,
-        proxy: str | None = None,
-        retry_config: RetryConfig | None = None,
-    ):
-        super().__init__(
-            base_url=base_url,
-            api_key=api_key,
-            proxy=proxy,
-            retry_config=retry_config,
-        )
-        self._client = client if client else niquests.Session()
-
-    def _request(
-        self,
-        path: str,
-        query: BaseModel,
-        *,
-        stream: bool = False,
-        response_model: type[ResponseModelT],
-    ) -> Response[ResponseModelT]:
-        url, headers, query_params = self._build_request(path, query)
-        attempts = self._retry_config.max_attempts if self._retry_config else 1
-        retryable_exceptions = (
-            self._retry_config.retryable_exceptions if self._retry_config else ()
-        )
-
-        for attempt in range(1, attempts + 1):
-            try:
-                response = self._client.get(
-                    url,
-                    headers=headers,
-                    params=query_params,
-                    proxies=self._proxy,
-                    stream=stream,
-                )
-            except retryable_exceptions as error:
-                if self._retry_config is None or attempt == attempts:
-                    raise
-                time.sleep(self._retry_config.strategy.get_delay(attempt, error=error))
-                continue
-
-            if (
-                self._retry_config is not None
-                and attempt < attempts
-                and self._retry_config.should_retry_status(response.status_code)
-            ):
-                time.sleep(
-                    self._retry_config.strategy.get_delay(attempt, response=response)
+                    retry_config.strategy.get_delay(attempt, response=response)
                 )
                 continue
 
@@ -333,83 +258,344 @@ class Brave(_BraveBase):
 
         raise AssertionError("unreachable")
 
-    def _get(
-        self, path: str, query: BaseModel, model: type[ResponseModelT]
+    async def _request_streaming(
+        self,
+        path: str,
+        query: BaseModel,
+        response_model: type[ResponseModelT],
+        *,
+        line_parser: Callable[[str], ResponseModelT] | None = None,
+    ) -> AsyncResponse[ResponseModelT]:
+        url, headers, query_params = self._build_request(path, query)
+        proxies = self._build_proxies()
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response: niquests.AsyncResponse = await self._client.get(
+                    url,
+                    headers=headers,
+                    params=query_params,
+                    proxies=proxies,
+                    stream=True,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                await asyncio.sleep(
+                    self._retry_config.strategy.get_delay(attempt, error=error)
+                )
+                continue
+
+            retry_config = self._retry_config
+            if retry_config is not None and self._should_retry_status(
+                response.status_code,
+                attempt,
+                attempts,
+            ):
+                await asyncio.sleep(
+                    retry_config.strategy.get_delay(attempt, response=response)
+                )
+                continue
+
+            response.raise_for_status()
+            return AsyncResponse(
+                response,
+                response_model,
+                line_parser=line_parser,
+            )
+
+        raise AssertionError("unreachable")
+
+    async def web_search(
+        self, query: WebSearchQueryParams
+    ) -> Response[WebSearchApiResponse]:
+        return await self._request("/web/search", query, WebSearchApiResponse)
+
+    async def image_search(
+        self, query: ImageSearchAPIParams
+    ) -> Response[ImageSearchApiResponse]:
+        return await self._request("/images/search", query, ImageSearchApiResponse)
+
+    async def news_search(
+        self, query: NewsSearchQueryParams
+    ) -> Response[NewsSearchApiResponse]:
+        return await self._request("/news/search", query, NewsSearchApiResponse)
+
+    async def video_search(
+        self, query: VideoSearchQueryParams
+    ) -> Response[VideoSearchApiResponse]:
+        return await self._request("/videos/search", query, VideoSearchApiResponse)
+
+    async def spellcheck(
+        self, query: SpellcheckQueryParams
+    ) -> Response[SpellcheckApiResponse]:
+        return await self._request("/spellcheck/search", query, SpellcheckApiResponse)
+
+    async def suggest(
+        self, query: SuggestSearchQueryParams
+    ) -> Response[SuggestSearchApiResponse]:
+        return await self._request("/suggest/search", query, SuggestSearchApiResponse)
+
+    async def local_pois(
+        self, query: LocalSearchQueryParams
+    ) -> Response[LocalPoiSearchApiResponse]:
+        return await self._request("/local/pois", query, LocalPoiSearchApiResponse)
+
+    async def local_descriptions(
+        self, query: LocalDescriptionsQueryParams
+    ) -> Response[LocalDescriptionsSearchApiResponse]:
+        return await self._request(
+            "/local/descriptions",
+            query,
+            LocalDescriptionsSearchApiResponse,
+        )
+
+    async def summarizer_search(
+        self, query: SummarizerQueryParams
+    ) -> Response[SummarizerSearchApiResponse]:
+        return await self._request(
+            "/summarizer/search", query, SummarizerSearchApiResponse
+        )
+
+    async def summarizer_summary(
+        self, query: SummarizerQueryParams
+    ) -> Response[SummarizerSummaryApiResponse]:
+        return await self._request(
+            "/summarizer/summary",
+            query,
+            SummarizerSummaryApiResponse,
+        )
+
+    async def summarizer_title(
+        self, query: SummarizerQueryParams
+    ) -> Response[SummarizerTitleApiResponse]:
+        return await self._request(
+            "/summarizer/title", query, SummarizerTitleApiResponse
+        )
+
+    async def summarizer_enrichments(
+        self, query: SummarizerQueryParams
+    ) -> Response[SummarizerEnrichmentsApiResponse]:
+        return await self._request(
+            "/summarizer/enrichments",
+            query,
+            SummarizerEnrichmentsApiResponse,
+        )
+
+    async def summarizer_followups(
+        self, query: SummarizerQueryParams
+    ) -> Response[SummarizerFollowupsApiResponse]:
+        return await self._request(
+            "/summarizer/followups",
+            query,
+            SummarizerFollowupsApiResponse,
+        )
+
+    async def summarizer_entity_info(
+        self, query: SummarizerEntityInfoQueryParams
+    ) -> Response[SummarizerEntityInfoApiResponse]:
+        return await self._request(
+            "/summarizer/entity_info",
+            query,
+            SummarizerEntityInfoApiResponse,
+        )
+
+    async def summarizer_summary_streaming(
+        self, query: SummarizerQueryParams
+    ) -> AsyncResponse[SummarizerStreamingEvent]:
+        return await self._request_streaming(
+            "/summarizer/summary_streaming",
+            query,
+            SummarizerStreamingEvent,
+            line_parser=_parse_streaming_event,
+        )
+
+
+class Brave(_BraveBase):
+    """Synchronous Brave Search API client backed by `niquests.Session`."""
+
+    def __init__(
+        self,
+        client: niquests.Session | None = None,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        proxy: str | None = None,
+        retry_config: RetryConfig | None = None,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            api_key=api_key,
+            proxy=proxy,
+            retry_config=retry_config,
+        )
+        self._client = client if client is not None else niquests.Session()
+
+    def _request(
+        self,
+        path: str,
+        query: BaseModel,
+        *,
+        stream: bool = False,
+        response_model: type[ResponseModelT],
+        line_parser: Callable[[str], ResponseModelT] | None = None,
     ) -> Response[ResponseModelT]:
-        return self._request(path, query, response_model=model)
+        url, headers, query_params = self._build_request(path, query)
+        proxies = self._build_proxies()
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response: niquests.Response = self._client.get(
+                    url,
+                    headers=headers,
+                    params=query_params,
+                    proxies=proxies,
+                    stream=stream,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                time.sleep(self._retry_config.strategy.get_delay(attempt, error=error))
+                continue
+
+            retry_config = self._retry_config
+            if retry_config is not None and self._should_retry_status(
+                response.status_code,
+                attempt,
+                attempts,
+            ):
+                time.sleep(retry_config.strategy.get_delay(attempt, response=response))
+                continue
+
+            response.raise_for_status()
+            return Response(
+                response,
+                response_model,
+                line_parser=line_parser,
+            )
+
+        raise AssertionError("unreachable")
 
     def web_search(self, query: WebSearchQueryParams) -> Response[WebSearchApiResponse]:
-        return self._get("/web/search", query, WebSearchApiResponse)
+        return self._request("/web/search", query, response_model=WebSearchApiResponse)
 
     def image_search(
         self, query: ImageSearchAPIParams
     ) -> Response[ImageSearchApiResponse]:
-        return self._get("/images/search", query, ImageSearchApiResponse)
+        return self._request(
+            "/images/search",
+            query,
+            response_model=ImageSearchApiResponse,
+        )
 
     def news_search(
         self, query: NewsSearchQueryParams
     ) -> Response[NewsSearchApiResponse]:
-        return self._get("/news/search", query, NewsSearchApiResponse)
+        return self._request(
+            "/news/search", query, response_model=NewsSearchApiResponse
+        )
 
     def video_search(
         self, query: VideoSearchQueryParams
     ) -> Response[VideoSearchApiResponse]:
-        return self._get("/videos/search", query, VideoSearchApiResponse)
+        return self._request(
+            "/videos/search",
+            query,
+            response_model=VideoSearchApiResponse,
+        )
 
     def spellcheck(
         self, query: SpellcheckQueryParams
     ) -> Response[SpellcheckApiResponse]:
-        return self._get("/spellcheck/search", query, SpellcheckApiResponse)
+        return self._request(
+            "/spellcheck/search",
+            query,
+            response_model=SpellcheckApiResponse,
+        )
 
     def suggest(
         self, query: SuggestSearchQueryParams
     ) -> Response[SuggestSearchApiResponse]:
-        return self._get("/suggest/search", query, SuggestSearchApiResponse)
+        return self._request(
+            "/suggest/search", query, response_model=SuggestSearchApiResponse
+        )
 
     def local_pois(
         self, query: LocalSearchQueryParams
     ) -> Response[LocalPoiSearchApiResponse]:
-        return self._get("/local/pois", query, LocalPoiSearchApiResponse)
+        return self._request(
+            "/local/pois", query, response_model=LocalPoiSearchApiResponse
+        )
 
     def local_descriptions(
         self, query: LocalDescriptionsQueryParams
     ) -> Response[LocalDescriptionsSearchApiResponse]:
-        return self._get(
-            "/local/descriptions", query, LocalDescriptionsSearchApiResponse
+        return self._request(
+            "/local/descriptions",
+            query,
+            response_model=LocalDescriptionsSearchApiResponse,
         )
 
     def summarizer_search(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerSearchApiResponse]:
-        return self._get("/summarizer/search", query, SummarizerSearchApiResponse)
+        return self._request(
+            "/summarizer/search",
+            query,
+            response_model=SummarizerSearchApiResponse,
+        )
 
     def summarizer_summary(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerSummaryApiResponse]:
-        return self._get("/summarizer/summary", query, SummarizerSummaryApiResponse)
+        return self._request(
+            "/summarizer/summary",
+            query,
+            response_model=SummarizerSummaryApiResponse,
+        )
 
     def summarizer_title(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerTitleApiResponse]:
-        return self._get("/summarizer/title", query, SummarizerTitleApiResponse)
+        return self._request(
+            "/summarizer/title",
+            query,
+            response_model=SummarizerTitleApiResponse,
+        )
 
     def summarizer_enrichments(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerEnrichmentsApiResponse]:
-        return self._get(
-            "/summarizer/enrichments", query, SummarizerEnrichmentsApiResponse
+        return self._request(
+            "/summarizer/enrichments",
+            query,
+            response_model=SummarizerEnrichmentsApiResponse,
         )
 
     def summarizer_followups(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerFollowupsApiResponse]:
-        return self._get("/summarizer/followups", query, SummarizerFollowupsApiResponse)
+        return self._request(
+            "/summarizer/followups",
+            query,
+            response_model=SummarizerFollowupsApiResponse,
+        )
 
     def summarizer_entity_info(
         self, query: SummarizerEntityInfoQueryParams
     ) -> Response[SummarizerEntityInfoApiResponse]:
-        return self._get(
-            "/summarizer/entity_info", query, SummarizerEntityInfoApiResponse
+        return self._request(
+            "/summarizer/entity_info",
+            query,
+            response_model=SummarizerEntityInfoApiResponse,
         )
 
     def summarizer_summary_streaming(
@@ -420,4 +606,5 @@ class Brave(_BraveBase):
             query,
             stream=True,
             response_model=SummarizerStreamingEvent,
+            line_parser=_parse_streaming_event,
         )

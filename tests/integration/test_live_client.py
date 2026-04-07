@@ -9,6 +9,7 @@ from niquests.exceptions import HTTPError
 from brave_api.client import AsyncBrave, Brave
 from brave_api.image_search.models import ImageSearchAPIParams
 from brave_api.news_search.models import NewsSearchQueryParams
+from brave_api.response import Response
 from brave_api.spellcheck.models import SpellcheckQueryParams
 from brave_api.suggest.models import SuggestSearchQueryParams
 from brave_api.video_search.models import VideoSearchQueryParams
@@ -80,19 +81,27 @@ async def _call_async(func: Callable[..., Awaitable[T]], *args: object) -> T:
 
 
 def _assert_sync_type(
-    func: Callable[..., object], query: object, expected_type: str
+    func: Callable[..., object],
+    query: object,
+    expected_type: str,
 ) -> None:
     try:
-        assert getattr(_call_sync(func, query), "type") == expected_type
+        response = _call_sync(func, query)
+        assert isinstance(response, Response)
+        assert getattr(response.parsed_data, "type") == expected_type
     except HTTPError as error:
         _handle_live_http_error(error)
 
 
 async def _assert_async_type(
-    func: Callable[..., Awaitable[object]], query: object, expected_type: str
+    func: Callable[..., Awaitable[object]],
+    query: object,
+    expected_type: str,
 ) -> None:
     try:
-        assert getattr(await _call_async(func, query), "type") == expected_type
+        response = await _call_async(func, query)
+        assert isinstance(response, Response)
+        assert getattr(response.parsed_data, "type") == expected_type
     except HTTPError as error:
         _handle_live_http_error(error)
 
@@ -105,15 +114,6 @@ def live_client() -> Brave:
 @pytest.fixture
 def async_live_client() -> AsyncBrave:
     return AsyncBrave()
-
-
-@live
-def test_sync_search(live_client: Brave) -> None:
-    _assert_sync_type(
-        live_client.search,
-        WebSearchQueryParams(q="python programming", count=3),
-        "search",
-    )
 
 
 @live
@@ -135,25 +135,9 @@ def test_sync_image_search(live_client: Brave) -> None:
 
 
 @live
-def test_sync_images_alias(live_client: Brave) -> None:
-    _assert_sync_type(
-        live_client.images,
-        ImageSearchAPIParams(q="mountain landscape", count=2),
-        "images",
-    )
-
-
-@live
 def test_sync_news_search(live_client: Brave) -> None:
     _assert_sync_type(
         live_client.news_search, NewsSearchQueryParams(q="technology", count=2), "news"
-    )
-
-
-@live
-def test_sync_news_alias(live_client: Brave) -> None:
-    _assert_sync_type(
-        live_client.news, NewsSearchQueryParams(q="science", count=2), "news"
     )
 
 
@@ -162,15 +146,6 @@ def test_sync_video_search(live_client: Brave) -> None:
     _assert_sync_type(
         live_client.video_search,
         VideoSearchQueryParams(q="python tutorial", count=2),
-        "videos",
-    )
-
-
-@live
-def test_sync_videos_alias(live_client: Brave) -> None:
-    _assert_sync_type(
-        live_client.videos,
-        VideoSearchQueryParams(q="machine learning tutorial", count=2),
         "videos",
     )
 
@@ -186,25 +161,6 @@ def test_sync_spellcheck(live_client: Brave) -> None:
 def test_sync_suggest(live_client: Brave) -> None:
     _assert_sync_type(
         live_client.suggest, SuggestSearchQueryParams(q="python", count=3), "suggest"
-    )
-
-
-@live
-def test_sync_suggest_search_alias(live_client: Brave) -> None:
-    _assert_sync_type(
-        live_client.suggest_search,
-        SuggestSearchQueryParams(q="privac", count=3),
-        "suggest",
-    )
-
-
-@live
-@pytest.mark.asyncio
-async def test_async_search(async_live_client: AsyncBrave) -> None:
-    await _assert_async_type(
-        async_live_client.search,
-        WebSearchQueryParams(q="python packaging", count=3),
-        "search",
     )
 
 
@@ -230,16 +186,6 @@ async def test_async_image_search(async_live_client: AsyncBrave) -> None:
 
 @live
 @pytest.mark.asyncio
-async def test_async_images_alias(async_live_client: AsyncBrave) -> None:
-    await _assert_async_type(
-        async_live_client.images,
-        ImageSearchAPIParams(q="city skyline", count=2),
-        "images",
-    )
-
-
-@live
-@pytest.mark.asyncio
 async def test_async_news_search(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.news_search,
@@ -250,30 +196,10 @@ async def test_async_news_search(async_live_client: AsyncBrave) -> None:
 
 @live
 @pytest.mark.asyncio
-async def test_async_news_alias(async_live_client: AsyncBrave) -> None:
-    await _assert_async_type(
-        async_live_client.news,
-        NewsSearchQueryParams(q="artificial intelligence", count=2),
-        "news",
-    )
-
-
-@live
-@pytest.mark.asyncio
 async def test_async_video_search(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.video_search,
         VideoSearchQueryParams(q="golang tutorial", count=2),
-        "videos",
-    )
-
-
-@live
-@pytest.mark.asyncio
-async def test_async_videos_alias(async_live_client: AsyncBrave) -> None:
-    await _assert_async_type(
-        async_live_client.videos,
-        VideoSearchQueryParams(q="rust tutorial", count=2),
         "videos",
     )
 
@@ -294,15 +220,5 @@ async def test_async_suggest(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.suggest,
         SuggestSearchQueryParams(q="docke", count=3),
-        "suggest",
-    )
-
-
-@live
-@pytest.mark.asyncio
-async def test_async_suggest_search_alias(async_live_client: AsyncBrave) -> None:
-    await _assert_async_type(
-        async_live_client.suggest_search,
-        SuggestSearchQueryParams(q="kubernet", count=3),
         "suggest",
     )

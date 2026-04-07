@@ -60,10 +60,11 @@ from brave_api.client import Brave
 from brave_api.web_search.models import WebSearchQueryParams
 
 client = Brave(api_key="your-api-key")
-response = client.search(WebSearchQueryParams(q="python web frameworks"))
+response = client.web_search(WebSearchQueryParams(q="python web frameworks"))
+data = response.parsed_data
 
-if response.web:
-    for result in response.web.results:
+if data.web:
+    for result in data.web.results:
         print(result.title, result.url)
 ```
 
@@ -79,14 +80,27 @@ from brave_api.web_search.models import WebSearchQueryParams
 async def main() -> None:
     client = AsyncBrave(api_key="your-api-key")
     response = await client.web_search(WebSearchQueryParams(q="privacy search"))
+    data = response.parsed_data
 
-    if response.web:
-        for result in response.web.results:
+    if data.web:
+        for result in data.web.results:
             print(result.title)
 
 
 asyncio.run(main())
 ```
+
+## Responses API
+
+All non-streaming methods return a `Response[Model]` wrapper, including methods
+on `AsyncBrave`. Use `response.parsed_data` for the validated Pydantic model and
+`response.raw_response` for the underlying `niquests` response.
+
+`AsyncBrave.summarizer_summary_streaming()` returns
+`AsyncResponse[SummarizerStreamingEvent]`, and
+`Brave.summarizer_summary_streaming()` returns
+`Response[SummarizerStreamingEvent]`. Consume streaming events with
+`iter_lines_parsed()`.
 
 ## Retry configuration
 
@@ -158,26 +172,26 @@ By default, `RetryConfig` retries transient transport failures plus HTTP
 
 ## Supported APIs and methods
 
-All methods below are available on both `BraveAPIClient` and
-`AsyncBraveAPIClient`. Async methods use the same names and are awaited.
+All methods below are available on both `Brave` and `AsyncBrave`. Async methods
+use the same names and are awaited.
 
-| API group                | Brave endpoint(s)                      | Client methods                   | Request model(s)                  | Response model(s)                                                                |
-|--------------------------|----------------------------------------|----------------------------------|-----------------------------------|----------------------------------------------------------------------------------|
-| Web search               | `/res/v1/web/search`                   | `search()`, `web_search()`       | `WebSearchQueryParams`            | `WebSearchApiResponse`                                                           |
-| Image search             | `/res/v1/images/search`                | `image_search()`, `images()`     | `ImageSearchAPIParams`            | `ImageSearchApiResponse`                                                         |
-| News search              | `/res/v1/news/search`                  | `news_search()`, `news()`        | `NewsSearchQueryParams`           | `NewsSearchApiResponse`                                                          |
-| Video search             | `/res/v1/videos/search`                | `video_search()`, `videos()`     | `VideoSearchQueryParams`          | `VideoSearchApiResponse`                                                         |
-| Spellcheck               | `/res/v1/spellcheck/search`            | `spellcheck()`                   | `SpellcheckQueryParams`           | `SpellcheckApiResponse`                                                          |
-| Suggest                  | `/res/v1/suggest/search`               | `suggest()`, `suggest_search()`  | `SuggestSearchQueryParams`        | `SuggestSearchApiResponse`                                                       |
-| Local points of interest | `/res/v1/local/pois`                   | `local_pois()`                   | `LocalSearchQueryParams`          | `LocalPoiSearchApiResponse`                                                      |
-| Local descriptions       | `/res/v1/local/descriptions`           | `local_descriptions()`           | `LocalDescriptionsQueryParams`    | `LocalDescriptionsSearchApiResponse`                                             |
-| Summarizer search        | `/res/v1/summarizer/search`            | `summarizer_search()`            | `SummarizerQueryParams`           | `SummarizerSearchApiResponse`                                                    |
-| Summarizer summary       | `/res/v1/summarizer/summary`           | `summarizer_summary()`           | `SummarizerQueryParams`           | `SummarizerSummaryApiResponse`                                                   |
-| Summarizer title         | `/res/v1/summarizer/title`             | `summarizer_title()`             | `SummarizerQueryParams`           | `SummarizerTitleApiResponse`                                                     |
-| Summarizer enrichments   | `/res/v1/summarizer/enrichments`       | `summarizer_enrichments()`       | `SummarizerQueryParams`           | `SummarizerEnrichmentsApiResponse`                                               |
-| Summarizer followups     | `/res/v1/summarizer/followups`         | `summarizer_followups()`         | `SummarizerQueryParams`           | `SummarizerFollowupsApiResponse`                                                 |
-| Summarizer entity info   | `/res/v1/summarizer/entity_info`       | `summarizer_entity_info()`       | `SummarizerEntityInfoQueryParams` | `SummarizerEntityInfoApiResponse`                                                |
-| Summarizer streaming     | `/res/v1/summarizer/summary_streaming` | `summarizer_summary_streaming()` | `SummarizerQueryParams`           | `Iterator[SummarizerStreamingEvent]` / `AsyncIterator[SummarizerStreamingEvent]` |
+| API group                | Brave endpoint(s)                      | Client methods                   | Request model(s)                  | Return type                                                                                           |
+|--------------------------|----------------------------------------|----------------------------------|-----------------------------------|-------------------------------------------------------------------------------------------------------|
+| Web search               | `/res/v1/web/search`                   | `web_search()`                   | `WebSearchQueryParams`            | `Response[WebSearchApiResponse]`                                                                       |
+| Image search             | `/res/v1/images/search`                | `image_search()`                 | `ImageSearchAPIParams`            | `Response[ImageSearchApiResponse]`                                                                     |
+| News search              | `/res/v1/news/search`                  | `news_search()`                  | `NewsSearchQueryParams`           | `Response[NewsSearchApiResponse]`                                                                      |
+| Video search             | `/res/v1/videos/search`                | `video_search()`                 | `VideoSearchQueryParams`          | `Response[VideoSearchApiResponse]`                                                                     |
+| Spellcheck               | `/res/v1/spellcheck/search`            | `spellcheck()`                   | `SpellcheckQueryParams`           | `Response[SpellcheckApiResponse]`                                                                      |
+| Suggest                  | `/res/v1/suggest/search`               | `suggest()`                      | `SuggestSearchQueryParams`        | `Response[SuggestSearchApiResponse]`                                                                   |
+| Local points of interest | `/res/v1/local/pois`                   | `local_pois()`                   | `LocalSearchQueryParams`          | `Response[LocalPoiSearchApiResponse]`                                                                  |
+| Local descriptions       | `/res/v1/local/descriptions`           | `local_descriptions()`           | `LocalDescriptionsQueryParams`    | `Response[LocalDescriptionsSearchApiResponse]`                                                         |
+| Summarizer search        | `/res/v1/summarizer/search`            | `summarizer_search()`            | `SummarizerQueryParams`           | `Response[SummarizerSearchApiResponse]`                                                                |
+| Summarizer summary       | `/res/v1/summarizer/summary`           | `summarizer_summary()`           | `SummarizerQueryParams`           | `Response[SummarizerSummaryApiResponse]`                                                               |
+| Summarizer title         | `/res/v1/summarizer/title`             | `summarizer_title()`             | `SummarizerQueryParams`           | `Response[SummarizerTitleApiResponse]`                                                                 |
+| Summarizer enrichments   | `/res/v1/summarizer/enrichments`       | `summarizer_enrichments()`       | `SummarizerQueryParams`           | `Response[SummarizerEnrichmentsApiResponse]`                                                           |
+| Summarizer followups     | `/res/v1/summarizer/followups`         | `summarizer_followups()`         | `SummarizerQueryParams`           | `Response[SummarizerFollowupsApiResponse]`                                                             |
+| Summarizer entity info   | `/res/v1/summarizer/entity_info`       | `summarizer_entity_info()`       | `SummarizerEntityInfoQueryParams` | `Response[SummarizerEntityInfoApiResponse]`                                                            |
+| Summarizer streaming     | `/res/v1/summarizer/summary_streaming` | `summarizer_summary_streaming()` | `SummarizerQueryParams`           | `Response[SummarizerStreamingEvent]` on `Brave`; `AsyncResponse[SummarizerStreamingEvent]` on `AsyncBrave` |
 
 ## API overview
 

@@ -1,4 +1,4 @@
-from typing import Any, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -121,7 +121,7 @@ class SearchResult(BaseModel):
     subtype: str = "generic"
     is_live: bool = False
     deep_results: Optional["DeepResult"] = None
-    schemas: Optional[List[List[Any]]] = None
+    schemas: Optional[List[List[object]]] = None
     meta_url: Optional[MetaUrl] = None
     thumbnail: Optional[Thumbnail] = None
     age: Optional[str] = None

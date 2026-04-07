@@ -1,17 +1,19 @@
 import os
 from collections.abc import Callable
-from typing import TypeVar, cast
+from typing import ParamSpec, TypeVar
 
 import pytest
 
 from brave_api.constants import BRAVE_API_KEY_ENV_VAR
 
-F = TypeVar("F", bound=Callable[..., object])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
-def live(test_func: F) -> F:
-    decorated = pytest.mark.skipif(
+def live(test_func: Callable[P, R]) -> Callable[P, R]:
+    pytest.mark.live(test_func)
+    pytest.mark.skipif(
         not os.getenv(BRAVE_API_KEY_ENV_VAR),
         reason="BRAVE_API_KEY is not set",
-    )(pytest.mark.live(test_func))
-    return cast(F, decorated)
+    )(test_func)
+    return test_func

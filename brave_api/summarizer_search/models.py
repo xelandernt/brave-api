@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,7 +26,7 @@ class SummarizerToken(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     type: Optional[str] = None
-    data: Optional[Any] = None
+    data: object = None
 
 
 class SummarizerReference(BaseModel):
@@ -78,10 +78,10 @@ class SummarizerEnrichments(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     raw_summary: Optional[str] = None
-    images: Optional[List[SummarizerImage]] = None
-    qa_pairs: Optional[List[SummarizerQAPair]] = None
-    entity_details: Optional[List[SummarizerEntity]] = None
-    references: Optional[List[SummarizerReference]] = None
+    images: Optional[list[SummarizerImage]] = None
+    qa_pairs: Optional[list[SummarizerQAPair]] = None
+    entity_details: Optional[list[SummarizerEntity]] = None
+    references: Optional[list[SummarizerReference]] = None
 
 
 class SummarizerFollowup(BaseModel):
@@ -106,11 +106,11 @@ class SummarizerBaseResponse(BaseModel):
     status: Optional[str] = None
     title: Optional[str] = None
     key: Optional[str] = None
-    summary: Optional[Union[str, List[SummarizerToken]]] = None
+    summary: Optional[str | list[SummarizerToken]] = None
     enrichments: Optional[SummarizerEnrichments] = None
-    followups: Optional[List[Union[str, SummarizerFollowup]]] = None
-    entities_info: Optional[List[SummarizerEntity]] = None
-    references: Optional[List[SummarizerReference]] = None
+    followups: Optional[list[str | SummarizerFollowup]] = None
+    entities_info: Optional[list[SummarizerEntity]] = None
+    references: Optional[list[SummarizerReference]] = None
 
 
 class SummarizerSearchApiResponse(SummarizerBaseResponse):
@@ -148,7 +148,7 @@ class SummarizerFollowupsApiResponse(BaseModel):
 
     status: Optional[str] = None
     key: Optional[str] = None
-    followups: Optional[List[Union[str, SummarizerFollowup]]] = None
+    followups: Optional[list[str | SummarizerFollowup]] = None
 
 
 class SummarizerEntityInfoApiResponse(BaseModel):
@@ -158,7 +158,7 @@ class SummarizerEntityInfoApiResponse(BaseModel):
 
     status: Optional[str] = None
     key: Optional[str] = None
-    entities_info: Optional[List[SummarizerEntity]] = None
+    entities_info: Optional[list[SummarizerEntity]] = None
     entity: Optional[SummarizerEntity] = None
 
 
@@ -168,4 +168,4 @@ class SummarizerStreamingEvent(BaseModel):
     raw: str
     event: Optional[str] = None
     text: Optional[str] = None
-    payload_json: Optional[Dict[str, Any]] = None
+    payload_json: dict[str, object] | None = None

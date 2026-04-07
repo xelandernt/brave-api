@@ -10,30 +10,35 @@ from brave_api.retries import (
 )
 from brave_api.web_search.models import WebSearchQueryParams
 from tests.client.fakes import (
-    FakeAsyncResponse,
-    FakeAsyncSession,
     FakeResponse,
-    FakeSession,
+    AsyncGetStub,
+    SyncGetStub,
 )
 
 
-def test_default_sync_client_does_not_retry() -> None:
-    session = FakeSession([FakeResponse(status_code=503)])
+def test_default_sync_client_does_not_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = niquests.Session()
+    get = SyncGetStub([FakeResponse(status_code=503)])
+    monkeypatch.setattr(session, "get", get)
     client = Brave(api_key="token", client=session)
 
     with pytest.raises(niquests.exceptions.HTTPError):
-        client.search(WebSearchQueryParams(q="python"))
+        client.web_search(WebSearchQueryParams(q="python"))
 
-    assert len(session.calls) == 1
+    assert len(get.calls) == 1
 
 
-def test_retry_sync_client_retries_retryable_status() -> None:
-    session = FakeSession(
+def test_retry_sync_client_retries_retryable_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.Session()
+    get = SyncGetStub(
         [
             FakeResponse(status_code=503),
             FakeResponse({"type": "search"}),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = Brave(
         api_key="token",
         client=session,
@@ -42,19 +47,23 @@ def test_retry_sync_client_retries_retryable_status() -> None:
         ),
     )
 
-    response = client.search(WebSearchQueryParams(q="python"))
+    response = client.web_search(WebSearchQueryParams(q="python"))
 
-    assert response.type == "search"
-    assert len(session.calls) == 2
+    assert response.parsed_data.type == "search"
+    assert len(get.calls) == 2
 
 
-def test_retry_sync_client_retries_connection_errors() -> None:
-    session = FakeSession(
+def test_retry_sync_client_retries_connection_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.Session()
+    get = SyncGetStub(
         [
             niquests.exceptions.ConnectionError("boom"),
             FakeResponse({"type": "search"}),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = Brave(
         api_key="token",
         client=session,
@@ -63,21 +72,23 @@ def test_retry_sync_client_retries_connection_errors() -> None:
         ),
     )
 
-    response = client.search(WebSearchQueryParams(q="python"))
+    response = client.web_search(WebSearchQueryParams(q="python"))
 
-    assert response.type == "search"
-    assert len(session.calls) == 2
+    assert response.parsed_data.type == "search"
+    assert len(get.calls) == 2
 
 
 def test_retry_sync_client_uses_retry_after_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    session = FakeSession(
+    session = niquests.Session()
+    get = SyncGetStub(
         [
             FakeResponse(status_code=429, headers={"Retry-After": "3"}),
             FakeResponse({"type": "search"}),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = Brave(
         api_key="token",
         client=session,
@@ -94,29 +105,37 @@ def test_retry_sync_client_uses_retry_after_header(
     delays: list[float] = []
     monkeypatch.setattr("brave_api.client.time.sleep", delays.append)
 
-    response = client.search(WebSearchQueryParams(q="python"))
+    response = client.web_search(WebSearchQueryParams(q="python"))
 
-    assert response.type == "search"
+    assert response.parsed_data.type == "search"
     assert delays == [3.0]
 
 
-async def test_default_async_client_does_not_retry() -> None:
-    session = FakeAsyncSession([FakeAsyncResponse(status_code=503)])
+async def test_default_async_client_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.AsyncSession()
+    get = AsyncGetStub([FakeResponse(status_code=503)])
+    monkeypatch.setattr(session, "get", get)
     client = AsyncBrave(api_key="token", client=session)
 
     with pytest.raises(niquests.exceptions.HTTPError):
-        await client.search(WebSearchQueryParams(q="python"))
+        await client.web_search(WebSearchQueryParams(q="python"))
 
-    assert len(session.calls) == 1
+    assert len(get.calls) == 1
 
 
-async def test_retry_async_client_retries_retryable_status() -> None:
-    session = FakeAsyncSession(
+async def test_retry_async_client_retries_retryable_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.AsyncSession()
+    get = AsyncGetStub(
         [
-            FakeAsyncResponse(status_code=503),
-            FakeAsyncResponse({"type": "search"}),
+            FakeResponse(status_code=503),
+            FakeResponse({"type": "search"}),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = AsyncBrave(
         api_key="token",
         client=session,
@@ -125,19 +144,23 @@ async def test_retry_async_client_retries_retryable_status() -> None:
         ),
     )
 
-    response = await client.search(WebSearchQueryParams(q="python"))
+    response = await client.web_search(WebSearchQueryParams(q="python"))
 
-    assert response.type == "search"
-    assert len(session.calls) == 2
+    assert response.parsed_data.type == "search"
+    assert len(get.calls) == 2
 
 
-async def test_retry_async_client_retries_connection_errors() -> None:
-    session = FakeAsyncSession(
+async def test_retry_async_client_retries_connection_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.AsyncSession()
+    get = AsyncGetStub(
         [
             niquests.exceptions.ConnectionError("boom"),
-            FakeAsyncResponse({"type": "search"}),
+            FakeResponse({"type": "search"}),
         ]
     )
+    monkeypatch.setattr(session, "get", get)
     client = AsyncBrave(
         api_key="token",
         client=session,
@@ -146,7 +169,7 @@ async def test_retry_async_client_retries_connection_errors() -> None:
         ),
     )
 
-    response = await client.search(WebSearchQueryParams(q="python"))
+    response = await client.web_search(WebSearchQueryParams(q="python"))
 
-    assert response.type == "search"
-    assert len(session.calls) == 2
+    assert response.parsed_data.type == "search"
+    assert len(get.calls) == 2
