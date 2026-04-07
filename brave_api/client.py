@@ -3,11 +3,12 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, AsyncIterator, Iterator, Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 import niquests
 from pydantic import BaseModel
 
+from brave_api import AsyncResponse, Response
 from brave_api.constants import BRAVE_API_KEY_ENV_VAR
 from brave_api.image_search.models import ImageSearchAPIParams, ImageSearchApiResponse
 from brave_api.news_search.models import NewsSearchApiResponse, NewsSearchQueryParams
@@ -105,12 +106,6 @@ class _BraveBase(abc.ABC):
         params = query_params.model_dump(exclude_none=True, exclude_unset=True)
         return self._build_url(path), headers, params
 
-    @staticmethod
-    def _validate_response(
-        model: type[ResponseModelT], payload: object
-    ) -> ResponseModelT:
-        return model.model_validate(payload)
-
 
 class AsyncBrave(_BraveBase):
     """Async Brave Search API client backed by `niquests.AsyncSession`."""
@@ -133,8 +128,13 @@ class AsyncBrave(_BraveBase):
         self._client = client if client else niquests.AsyncSession()
 
     async def _request(
-        self, path: str, query: BaseModel, *, stream: bool = False
-    ) -> Any:
+        self,
+        path: str,
+        query: BaseModel,
+        *,
+        stream: bool = False,
+        response_model: type[ResponseModelT],
+    ) -> AsyncResponse[ResponseModelT]:
         url, headers, query_params = self._build_request(path, query)
         attempts = self._retry_config.max_attempts if self._retry_config else 1
         retryable_exceptions = (
@@ -169,102 +169,104 @@ class AsyncBrave(_BraveBase):
                 continue
 
             response.raise_for_status()
-            return response
+            return AsyncResponse(response, response_model)
 
         raise AssertionError("unreachable")
 
     async def _get(
         self, path: str, query: BaseModel, model: type[ResponseModelT]
-    ) -> ResponseModelT:
-        response = await self._request(path, query)
-        return self._validate_response(model, response.json())
+    ) -> AsyncResponse[ResponseModelT]:
+        return await self._request(path, query, response_model=model)
 
-    async def web_search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
+    async def web_search(
+        self, query: WebSearchQueryParams
+    ) -> AsyncResponse[WebSearchApiResponse]:
         return await self._get("/web/search", query, WebSearchApiResponse)
 
-    async def image_search(self, query: ImageSearchAPIParams) -> ImageSearchApiResponse:
+    async def image_search(
+        self, query: ImageSearchAPIParams
+    ) -> AsyncResponse[ImageSearchApiResponse]:
         return await self._get("/images/search", query, ImageSearchApiResponse)
 
-    async def news_search(self, query: NewsSearchQueryParams) -> NewsSearchApiResponse:
+    async def news_search(
+        self, query: NewsSearchQueryParams
+    ) -> AsyncResponse[NewsSearchApiResponse]:
         return await self._get("/news/search", query, NewsSearchApiResponse)
 
     async def video_search(
         self, query: VideoSearchQueryParams
-    ) -> VideoSearchApiResponse:
+    ) -> AsyncResponse[VideoSearchApiResponse]:
         return await self._get("/videos/search", query, VideoSearchApiResponse)
 
-    async def spellcheck(self, query: SpellcheckQueryParams) -> SpellcheckApiResponse:
+    async def spellcheck(
+        self, query: SpellcheckQueryParams
+    ) -> AsyncResponse[SpellcheckApiResponse]:
         return await self._get("/spellcheck/search", query, SpellcheckApiResponse)
 
     async def suggest(
         self, query: SuggestSearchQueryParams
-    ) -> SuggestSearchApiResponse:
+    ) -> AsyncResponse[SuggestSearchApiResponse]:
         return await self._get("/suggest/search", query, SuggestSearchApiResponse)
 
     async def local_pois(
         self, query: LocalSearchQueryParams
-    ) -> LocalPoiSearchApiResponse:
+    ) -> AsyncResponse[LocalPoiSearchApiResponse]:
         return await self._get("/local/pois", query, LocalPoiSearchApiResponse)
 
     async def local_descriptions(
         self, query: LocalDescriptionsQueryParams
-    ) -> LocalDescriptionsSearchApiResponse:
+    ) -> AsyncResponse[LocalDescriptionsSearchApiResponse]:
         return await self._get(
             "/local/descriptions", query, LocalDescriptionsSearchApiResponse
         )
 
     async def summarizer_search(
         self, query: SummarizerQueryParams
-    ) -> SummarizerSearchApiResponse:
+    ) -> AsyncResponse[SummarizerSearchApiResponse]:
         return await self._get("/summarizer/search", query, SummarizerSearchApiResponse)
 
     async def summarizer_summary(
         self, query: SummarizerQueryParams
-    ) -> SummarizerSummaryApiResponse:
+    ) -> AsyncResponse[SummarizerSummaryApiResponse]:
         return await self._get(
             "/summarizer/summary", query, SummarizerSummaryApiResponse
         )
 
     async def summarizer_title(
         self, query: SummarizerQueryParams
-    ) -> SummarizerTitleApiResponse:
+    ) -> AsyncResponse[SummarizerTitleApiResponse]:
         return await self._get("/summarizer/title", query, SummarizerTitleApiResponse)
 
     async def summarizer_enrichments(
         self, query: SummarizerQueryParams
-    ) -> SummarizerEnrichmentsApiResponse:
+    ) -> AsyncResponse[SummarizerEnrichmentsApiResponse]:
         return await self._get(
             "/summarizer/enrichments", query, SummarizerEnrichmentsApiResponse
         )
 
     async def summarizer_followups(
         self, query: SummarizerQueryParams
-    ) -> SummarizerFollowupsApiResponse:
+    ) -> AsyncResponse[SummarizerFollowupsApiResponse]:
         return await self._get(
             "/summarizer/followups", query, SummarizerFollowupsApiResponse
         )
 
     async def summarizer_entity_info(
         self, query: SummarizerEntityInfoQueryParams
-    ) -> SummarizerEntityInfoApiResponse:
+    ) -> AsyncResponse[SummarizerEntityInfoApiResponse]:
         return await self._get(
             "/summarizer/entity_info", query, SummarizerEntityInfoApiResponse
         )
 
     async def summarizer_summary_streaming(
         self, query: SummarizerQueryParams
-    ) -> AsyncIterator[SummarizerStreamingEvent]:
-        response = await self._request(
-            "/summarizer/summary_streaming", query, stream=True
+    ) -> AsyncResponse[SummarizerStreamingEvent]:
+        return await self._request(
+            "/summarizer/summary_streaming",
+            query,
+            stream=True,
+            response_model=SummarizerStreamingEvent,
         )
-
-        async for line in response.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            if isinstance(line, bytes):
-                yield _parse_streaming_event(line.decode())
-            else:
-                yield _parse_streaming_event(line)
 
 
 class Brave(_BraveBase):
@@ -287,7 +289,14 @@ class Brave(_BraveBase):
         )
         self._client = client if client else niquests.Session()
 
-    def _request(self, path: str, query: BaseModel, *, stream: bool = False) -> Any:
+    def _request(
+        self,
+        path: str,
+        query: BaseModel,
+        *,
+        stream: bool = False,
+        response_model: type[ResponseModelT],
+    ) -> Response[ResponseModelT]:
         url, headers, query_params = self._build_request(path, query)
         attempts = self._retry_config.max_attempts if self._retry_config else 1
         retryable_exceptions = (
@@ -320,87 +329,95 @@ class Brave(_BraveBase):
                 continue
 
             response.raise_for_status()
-            return response
+            return Response(response, response_model)
 
         raise AssertionError("unreachable")
 
     def _get(
         self, path: str, query: BaseModel, model: type[ResponseModelT]
-    ) -> ResponseModelT:
-        response = self._request(path, query)
-        return self._validate_response(model, response.json())
+    ) -> Response[ResponseModelT]:
+        return self._request(path, query, response_model=model)
 
-    def web_search(self, query: WebSearchQueryParams) -> WebSearchApiResponse:
+    def web_search(self, query: WebSearchQueryParams) -> Response[WebSearchApiResponse]:
         return self._get("/web/search", query, WebSearchApiResponse)
 
-    def image_search(self, query: ImageSearchAPIParams) -> ImageSearchApiResponse:
+    def image_search(
+        self, query: ImageSearchAPIParams
+    ) -> Response[ImageSearchApiResponse]:
         return self._get("/images/search", query, ImageSearchApiResponse)
 
-    def news_search(self, query: NewsSearchQueryParams) -> NewsSearchApiResponse:
+    def news_search(
+        self, query: NewsSearchQueryParams
+    ) -> Response[NewsSearchApiResponse]:
         return self._get("/news/search", query, NewsSearchApiResponse)
 
-    def video_search(self, query: VideoSearchQueryParams) -> VideoSearchApiResponse:
+    def video_search(
+        self, query: VideoSearchQueryParams
+    ) -> Response[VideoSearchApiResponse]:
         return self._get("/videos/search", query, VideoSearchApiResponse)
 
-    def spellcheck(self, query: SpellcheckQueryParams) -> SpellcheckApiResponse:
+    def spellcheck(
+        self, query: SpellcheckQueryParams
+    ) -> Response[SpellcheckApiResponse]:
         return self._get("/spellcheck/search", query, SpellcheckApiResponse)
 
-    def suggest(self, query: SuggestSearchQueryParams) -> SuggestSearchApiResponse:
+    def suggest(
+        self, query: SuggestSearchQueryParams
+    ) -> Response[SuggestSearchApiResponse]:
         return self._get("/suggest/search", query, SuggestSearchApiResponse)
 
-    def local_pois(self, query: LocalSearchQueryParams) -> LocalPoiSearchApiResponse:
+    def local_pois(
+        self, query: LocalSearchQueryParams
+    ) -> Response[LocalPoiSearchApiResponse]:
         return self._get("/local/pois", query, LocalPoiSearchApiResponse)
 
     def local_descriptions(
         self, query: LocalDescriptionsQueryParams
-    ) -> LocalDescriptionsSearchApiResponse:
+    ) -> Response[LocalDescriptionsSearchApiResponse]:
         return self._get(
             "/local/descriptions", query, LocalDescriptionsSearchApiResponse
         )
 
     def summarizer_search(
         self, query: SummarizerQueryParams
-    ) -> SummarizerSearchApiResponse:
+    ) -> Response[SummarizerSearchApiResponse]:
         return self._get("/summarizer/search", query, SummarizerSearchApiResponse)
 
     def summarizer_summary(
         self, query: SummarizerQueryParams
-    ) -> SummarizerSummaryApiResponse:
+    ) -> Response[SummarizerSummaryApiResponse]:
         return self._get("/summarizer/summary", query, SummarizerSummaryApiResponse)
 
     def summarizer_title(
         self, query: SummarizerQueryParams
-    ) -> SummarizerTitleApiResponse:
+    ) -> Response[SummarizerTitleApiResponse]:
         return self._get("/summarizer/title", query, SummarizerTitleApiResponse)
 
     def summarizer_enrichments(
         self, query: SummarizerQueryParams
-    ) -> SummarizerEnrichmentsApiResponse:
+    ) -> Response[SummarizerEnrichmentsApiResponse]:
         return self._get(
             "/summarizer/enrichments", query, SummarizerEnrichmentsApiResponse
         )
 
     def summarizer_followups(
         self, query: SummarizerQueryParams
-    ) -> SummarizerFollowupsApiResponse:
+    ) -> Response[SummarizerFollowupsApiResponse]:
         return self._get("/summarizer/followups", query, SummarizerFollowupsApiResponse)
 
     def summarizer_entity_info(
         self, query: SummarizerEntityInfoQueryParams
-    ) -> SummarizerEntityInfoApiResponse:
+    ) -> Response[SummarizerEntityInfoApiResponse]:
         return self._get(
             "/summarizer/entity_info", query, SummarizerEntityInfoApiResponse
         )
 
     def summarizer_summary_streaming(
         self, query: SummarizerQueryParams
-    ) -> Iterator[SummarizerStreamingEvent]:
-        response = self._request("/summarizer/summary_streaming", query, stream=True)
-
-        for line in response.iter_lines(decode_unicode=True):
-            if not line:
-                continue
-            if isinstance(line, bytes):
-                yield _parse_streaming_event(line.decode())
-            else:
-                yield _parse_streaming_event(line)
+    ) -> Response[SummarizerStreamingEvent]:
+        return self._request(
+            "/summarizer/summary_streaming",
+            query,
+            stream=True,
+            response_model=SummarizerStreamingEvent,
+        )
