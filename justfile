@@ -10,6 +10,9 @@ install:
 lint:
     uv run prek run --all-files
 
+type:
+    uv run pyrefly check
+
 test *args:
     uv run --no-sync pytest {{ args }}
 

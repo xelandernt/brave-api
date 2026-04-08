@@ -31,7 +31,7 @@ class Rating(BaseModel):
 
 
 class Thing(BaseModel):
-    type: str
+    type: Literal["contact_point"]
 
 
 class Person(BaseModel):

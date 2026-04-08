@@ -45,10 +45,14 @@ markers = [
     "live: integration tests that call the live Brave API",
 ]
 
+[tool.pyrefly]
+python-version = "3.10"
+
 [dependency-groups]
 dev = [
     "mkdocs>=1.6.1",
     "prek>=0.3.8",
+    "pyrefly>=0.60.0",
     "pytest>=8.3.5",
     "pytest-asyncio>=0.26.0",
     "pytest-cov>=6.1.1",
