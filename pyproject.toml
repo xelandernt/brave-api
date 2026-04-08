@@ -21,6 +21,9 @@ packages = [
     { include = "brave_api" },
 ]
 
+[project.urls]
+repository = "https://github.com/xelandernt/brave-api"
+
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
