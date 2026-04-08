@@ -165,7 +165,6 @@ def test_sync_suggest(live_client: Brave) -> None:
 
 
 @live
-@pytest.mark.asyncio
 async def test_async_web_search(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.web_search,
@@ -175,7 +174,6 @@ async def test_async_web_search(async_live_client: AsyncBrave) -> None:
 
 
 @live
-@pytest.mark.asyncio
 async def test_async_image_search(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.image_search,
@@ -185,7 +183,6 @@ async def test_async_image_search(async_live_client: AsyncBrave) -> None:
 
 
 @live
-@pytest.mark.asyncio
 async def test_async_news_search(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.news_search,
@@ -195,7 +192,6 @@ async def test_async_news_search(async_live_client: AsyncBrave) -> None:
 
 
 @live
-@pytest.mark.asyncio
 async def test_async_video_search(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.video_search,
@@ -205,7 +201,6 @@ async def test_async_video_search(async_live_client: AsyncBrave) -> None:
 
 
 @live
-@pytest.mark.asyncio
 async def test_async_spellcheck(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.spellcheck,
@@ -215,7 +210,6 @@ async def test_async_spellcheck(async_live_client: AsyncBrave) -> None:
 
 
 @live
-@pytest.mark.asyncio
 async def test_async_suggest(async_live_client: AsyncBrave) -> None:
     await _assert_async_type(
         async_live_client.suggest,
