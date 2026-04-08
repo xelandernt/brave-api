@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional, Union
+from typing import TYPE_CHECKING, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -6,8 +6,10 @@ from brave_api.util import (
     validate_query_word_limit,
     validate_freshness,
     validate_result_filter,
-    validate_location_ids,
 )
+
+if TYPE_CHECKING:
+    pass
 
 
 class Thumbnail(BaseModel):
@@ -221,22 +223,6 @@ class MixedResponse(BaseModel):
     main: Optional[List[ResultReference]] = None
     top: Optional[List[ResultReference]] = None
     side: Optional[List[ResultReference]] = None
-
-
-class LocalPoiSearchApiResponse(BaseModel):
-    type: Literal["local_pois"] = "local_pois"
-    results: Optional[List[LocationResult]] = None
-
-
-class LocalDescriptionsSearchApiResponse(BaseModel):
-    type: Literal["local_descriptions"] = "local_descriptions"
-    results: Optional[List["LocationDescription"]] = None
-
-
-class LocationDescription(BaseModel):
-    type: Literal["local_description"] = "local_description"
-    id: str
-    description: Optional[str] = None
 
 
 class WebSearchApiResponse(BaseModel):
@@ -601,7 +587,6 @@ Article.model_rebuild()
 Reviews.model_rebuild()
 TripAdvisorReview.model_rebuild()
 WebSearchApiResponse.model_rebuild()
-LocalDescriptionsSearchApiResponse.model_rebuild()
 Recipe.model_rebuild()
 HowTo.model_rebuild()
 CreativeWork.model_rebuild()
@@ -699,51 +684,21 @@ class WebSearchQueryParams(BaseModel):
         return validate_result_filter(v)
 
 
-class LocalSearchQueryParams(BaseModel):
-    """
-    Validated query parameters for `/local/pois`.
-
-    The `ids` values come from location entries returned by web search.
-    """
-
-    ids: List[str] = Field(
-        ...,
-        min_length=1,
-        max_length=20,
-        description="List of 1 to 20 non-empty unique location IDs.",
-    )
-    search_lang: Optional[str] = Field(
-        "en",
-        min_length=2,
-        description="2+ character language code. See language codes list.",
-    )
-    ui_lang: Optional[str] = Field(
-        "en-US",
-        description="Format <language_code>-<country_code> (see RFC9110 and UI language codes list).",
-    )
-    units: Optional[str] = Field(
-        None,
-        pattern="^(metric|imperial)$",
-        description="Measurement units: metric, imperial.",
-    )
-
-    @field_validator("ids")
-    @classmethod
-    def validate_ids(cls, v: List[str]) -> List[str]:
-        return validate_location_ids(v)
+_LOCAL_EXPORTS = {
+    "LocalDescriptionsQueryParams",
+    "LocalDescriptionsSearchApiResponse",
+    "LocalPoiSearchApiResponse",
+    "LocalSearchQueryParams",
+    "LocationDescription",
+    "PlaceSearchApiResponse",
+    "PlaceSearchQueryParams",
+    "ResolvedLocation",
+}
 
 
-class LocalDescriptionsQueryParams(BaseModel):
-    """Validated query parameters for `/local/descriptions`."""
+def __getattr__(name: str) -> object:
+    if name in _LOCAL_EXPORTS:
+        from brave_api.local_search import models as local_models
 
-    ids: List[str] = Field(
-        ...,
-        min_length=1,
-        max_length=20,
-        description="List of 1 to 20 non-empty unique location IDs.",
-    )
-
-    @field_validator("ids")
-    @classmethod
-    def validate_ids(cls, v: List[str]) -> List[str]:
-        return validate_location_ids(v)
+        return getattr(local_models, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

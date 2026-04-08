@@ -14,9 +14,11 @@ QueryParams = dict[str, QueryParamValue]
 
 
 class RequestCall(TypedDict):
+    method: str
     url: str
     headers: HeadersMap | None
     params: QueryParams | None
+    json: JsonObject | None
     proxies: ProxyConfig | None
     stream: bool | None
 
@@ -178,9 +180,11 @@ class SyncGetStub:
         del kwargs
         self.calls.append(
             {
+                "method": "GET",
                 "url": url,
                 "headers": headers,
                 "params": params,
+                "json": None,
                 "proxies": proxies,
                 "stream": stream,
             }
@@ -213,9 +217,86 @@ class AsyncGetStub:
         del kwargs
         self.calls.append(
             {
+                "method": "GET",
                 "url": url,
                 "headers": headers,
                 "params": params,
+                "json": None,
+                "proxies": proxies,
+                "stream": stream,
+            }
+        )
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        if stream and isinstance(response, FakeResponse):
+            raise TypeError("Streaming requests require FakeAsyncResponse")
+        if not stream and isinstance(response, FakeAsyncResponse):
+            raise TypeError("Non-streaming requests require FakeResponse")
+        response.url = url
+        return response
+
+
+class SyncPostStub:
+    def __init__(self, responses: list[FakeResponse | Exception]) -> None:
+        self.responses = responses
+        self.calls: list[RequestCall] = []
+
+    def __call__(
+        self,
+        url: str,
+        *,
+        json: JsonObject | None = None,
+        headers: HeadersMap | None = None,
+        proxies: ProxyConfig | None = None,
+        stream: bool | None = None,
+        **kwargs: object,
+    ) -> FakeResponse:
+        del kwargs
+        self.calls.append(
+            {
+                "method": "POST",
+                "url": url,
+                "headers": headers,
+                "params": None,
+                "json": json,
+                "proxies": proxies,
+                "stream": stream,
+            }
+        )
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        response.url = url
+        return response
+
+
+class AsyncPostStub:
+    def __init__(
+        self,
+        responses: list[FakeResponse | FakeAsyncResponse | Exception],
+    ) -> None:
+        self.responses = responses
+        self.calls: list[RequestCall] = []
+
+    async def __call__(
+        self,
+        url: str,
+        *,
+        json: JsonObject | None = None,
+        headers: HeadersMap | None = None,
+        proxies: ProxyConfig | None = None,
+        stream: bool | None = None,
+        **kwargs: object,
+    ) -> FakeResponse | FakeAsyncResponse:
+        del kwargs
+        self.calls.append(
+            {
+                "method": "POST",
+                "url": url,
+                "headers": headers,
+                "params": None,
+                "json": json,
                 "proxies": proxies,
                 "stream": stream,
             }

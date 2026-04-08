@@ -2,10 +2,18 @@ import niquests
 import pytest
 from pydantic import ValidationError
 
+from brave_api.answers.models import AnswersApiResponse, AnswersRequest
 from brave_api.client import AsyncBrave, Brave
 from brave_api.image_search.models import ImageSearchAPIParams
+from brave_api.llm_context.models import LLMContextApiResponse, LLMContextQueryParams
+from brave_api.local_search.models import (
+    LocalDescriptionsQueryParams,
+    LocalSearchQueryParams,
+    PlaceSearchQueryParams,
+)
 from brave_api.news_search.models import NewsSearchApiResponse, NewsSearchQueryParams
-from brave_api.spellcheck.models import SpellcheckQueryParams, SpellcheckApiResponse
+from brave_api.rich_search.models import RichSearchQueryParams
+from brave_api.spellcheck.models import SpellcheckApiResponse, SpellcheckQueryParams
 from brave_api.suggest.models import SuggestSearchQueryParams
 from brave_api.summarizer_search.models import (
     SummarizerEntityInfoQueryParams,
@@ -13,17 +21,14 @@ from brave_api.summarizer_search.models import (
     SummarizerSearchApiResponse,
 )
 from brave_api.video_search.models import VideoSearchQueryParams
-from brave_api.web_search.models import (
-    LocalDescriptionsQueryParams,
-    LocalSearchQueryParams,
-    WebSearchQueryParams,
-    WebSearchApiResponse,
-)
+from brave_api.web_search.models import WebSearchApiResponse, WebSearchQueryParams
 from tests.client.fakes import (
     AsyncGetStub,
+    AsyncPostStub,
     FakeAsyncResponse,
     FakeResponse,
     SyncGetStub,
+    SyncPostStub,
     image_payload,
     news_payload,
     suggest_payload,
@@ -38,6 +43,16 @@ def test_sync_client_methods_use_expected_endpoints(
     get = SyncGetStub(
         [
             FakeResponse({"type": "search"}),
+            FakeResponse(
+                {
+                    "type": "rich",
+                    "results": [{"type": "weather", "title": "Weather"}],
+                    "response_callback_info": {
+                        "vertical": "weather",
+                        "callback_key": "cb",
+                    },
+                }
+            ),
             FakeResponse(image_payload()),
             FakeResponse(news_payload()),
             FakeResponse(video_payload()),
@@ -49,8 +64,40 @@ def test_sync_client_methods_use_expected_endpoints(
                 }
             ),
             FakeResponse(suggest_payload()),
+            FakeResponse(
+                {
+                    "type": "locations",
+                    "query": {"original": "coffee"},
+                    "results": [],
+                    "resolved_location": {"name": "San Francisco, CA, United States"},
+                }
+            ),
             FakeResponse({"type": "local_pois", "results": []}),
             FakeResponse({"type": "local_descriptions", "results": []}),
+            FakeResponse(
+                {
+                    "grounding": {
+                        "generic": [
+                            {
+                                "url": "https://example.com/python",
+                                "title": "Example Python",
+                                "snippets": ["Python is a programming language."],
+                            }
+                        ]
+                    },
+                    "sources": {
+                        "https://example.com/python": {
+                            "title": "Example Python",
+                            "hostname": "example.com",
+                            "age": [
+                                "Monday, January 15, 2024",
+                                "2024-01-15",
+                                "380 days ago",
+                            ],
+                        }
+                    },
+                }
+            ),
             FakeResponse(
                 {"status": "complete", "title": "Summary", "summary": "Hello"}
             ),
@@ -69,28 +116,73 @@ def test_sync_client_methods_use_expected_endpoints(
             FakeResponse(lines=["event: message", 'data: {"text":"chunk"}']),
         ]
     )
+    post = SyncPostStub(
+        [
+            FakeResponse(
+                {
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "brave",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "Paris is fun"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 3,
+                        "total_tokens": 13,
+                    },
+                }
+            ),
+            FakeResponse(
+                lines=[
+                    'data: {"choices":[{"delta":{"content":"stream chunk"}}]}',
+                    "data: [DONE]",
+                ]
+            ),
+        ]
+    )
     monkeypatch.setattr(session, "get", get)
+    monkeypatch.setattr(session, "post", post)
     client = Brave(api_key="token", client=session, proxy="http://proxy")
 
-    assert client.web_search(WebSearchQueryParams(q="python")).parsed_data.type == (
-        "search"
+    assert (
+        client.web_search(WebSearchQueryParams(q="python")).parsed_data.type == "search"
     )
-    assert client.image_search(ImageSearchAPIParams(q="cat")).parsed_data.type == (
-        "images"
+    rich_response = client.rich_search(
+        RichSearchQueryParams(callback_key="cb")
+    ).parsed_data
+    assert rich_response.type == "rich"
+    assert rich_response.response_callback_info is not None
+    assert rich_response.response_callback_info.vertical == "weather"
+    assert (
+        client.image_search(ImageSearchAPIParams(q="cat")).parsed_data.type == "images"
     )
-    assert client.news_search(NewsSearchQueryParams(q="climate")).parsed_data.type == (
-        "news"
+    assert (
+        client.news_search(NewsSearchQueryParams(q="climate")).parsed_data.type
+        == "news"
     )
     assert (
         client.video_search(VideoSearchQueryParams(q="tutorial")).parsed_data.type
         == "videos"
     )
-    assert client.spellcheck(SpellcheckQueryParams(q="helo")).parsed_data.type == (
-        "spellcheck"
+    assert (
+        client.spellcheck(SpellcheckQueryParams(q="helo")).parsed_data.type
+        == "spellcheck"
     )
-    assert client.suggest(SuggestSearchQueryParams(q="pyth")).parsed_data.type == (
-        "suggest"
+    assert (
+        client.suggest(SuggestSearchQueryParams(q="pyth")).parsed_data.type == "suggest"
     )
+    place_response = client.place_search(
+        PlaceSearchQueryParams(q="coffee", location="san francisco united states")
+    ).parsed_data
+    assert place_response.type == "locations"
+    assert place_response.resolved_location is not None
+    assert place_response.resolved_location.name == "San Francisco, CA, United States"
     assert client.local_pois(
         LocalSearchQueryParams(ids=["loc-1"])
     ).parsed_data.type == ("local_pois")
@@ -100,6 +192,17 @@ def test_sync_client_methods_use_expected_endpoints(
         ).parsed_data.type
         == "local_descriptions"
     )
+    llm_context_response = client.llm_context(
+        LLMContextQueryParams(q="python")
+    ).parsed_data
+    assert llm_context_response.grounding.generic[0].title == "Example Python"
+    answers_response = client.answers(
+        AnswersRequest(
+            messages=[{"role": "user", "content": "best things to do in paris"}]
+        )
+    ).parsed_data
+    assert answers_response.choices[0].message is not None
+    assert answers_response.choices[0].message.content == "Paris is fun"
     assert (
         client.summarizer_search(SummarizerQueryParams(key="k")).parsed_data.title
         == "Summary"
@@ -125,23 +228,33 @@ def test_sync_client_methods_use_expected_endpoints(
     ).parsed_data
     assert entity_info_response.entities_info is not None
     assert entity_info_response.entities_info[0].name == "K2"
-    stream = list(
+    answer_stream = list(
+        client.answers_streaming(
+            AnswersRequest(messages=[{"role": "user", "content": "stream"}])
+        ).iter_lines_parsed()
+    )
+    assert answer_stream[0].text == "stream chunk"
+    assert answer_stream[1].done is True
+    summary_stream = list(
         client.summarizer_summary_streaming(
             SummarizerQueryParams(key="k")
         ).iter_lines_parsed()
     )
-    assert stream[0].event == "message"
-    assert stream[1].text == "chunk"
+    assert summary_stream[0].event == "message"
+    assert summary_stream[1].text == "chunk"
 
     assert [call["url"] for call in get.calls] == [
         "https://api.search.brave.com/res/v1/web/search",
+        "https://api.search.brave.com/res/v1/web/rich",
         "https://api.search.brave.com/res/v1/images/search",
         "https://api.search.brave.com/res/v1/news/search",
         "https://api.search.brave.com/res/v1/videos/search",
         "https://api.search.brave.com/res/v1/spellcheck/search",
         "https://api.search.brave.com/res/v1/suggest/search",
+        "https://api.search.brave.com/res/v1/local/place_search",
         "https://api.search.brave.com/res/v1/local/pois",
         "https://api.search.brave.com/res/v1/local/descriptions",
+        "https://api.search.brave.com/res/v1/llm/context",
         "https://api.search.brave.com/res/v1/summarizer/search",
         "https://api.search.brave.com/res/v1/summarizer/summary",
         "https://api.search.brave.com/res/v1/summarizer/title",
@@ -150,16 +263,25 @@ def test_sync_client_methods_use_expected_endpoints(
         "https://api.search.brave.com/res/v1/summarizer/entity_info",
         "https://api.search.brave.com/res/v1/summarizer/summary_streaming",
     ]
+    assert [call["url"] for call in post.calls] == [
+        "https://api.search.brave.com/res/v1/chat/completions",
+        "https://api.search.brave.com/res/v1/chat/completions",
+    ]
     assert all(
         call["headers"] is not None
         and call["headers"]["X-Subscription-Token"] == "token"
-        for call in get.calls
+        for call in [*get.calls, *post.calls]
     )
     assert all(
         call["proxies"] == {"http": "http://proxy", "https": "http://proxy"}
-        for call in get.calls
+        for call in [*get.calls, *post.calls]
     )
+    assert post.calls[0]["json"] is not None
+    assert post.calls[0]["json"]["stream"] is False
+    assert post.calls[1]["json"] is not None
+    assert post.calls[1]["json"]["stream"] is True
     assert get.calls[-1]["stream"] is True
+    assert post.calls[-1]["stream"] is True
 
 
 async def test_async_client_methods_and_streaming_work(
@@ -170,26 +292,84 @@ async def test_async_client_methods_and_streaming_work(
         [
             FakeResponse({"type": "search"}),
             FakeResponse(
-                {"type": "spellcheck", "query": {"original": "helo"}, "results": []}
+                {
+                    "grounding": {
+                        "generic": [
+                            {
+                                "url": "https://example.com/async",
+                                "title": "Async Example",
+                                "snippets": ["Async context"],
+                            }
+                        ]
+                    },
+                    "sources": {
+                        "https://example.com/async": {
+                            "title": "Async Example",
+                            "hostname": "example.com",
+                        }
+                    },
+                }
             ),
             FakeAsyncResponse(lines=['data: {"text":"async chunk"}']),
         ]
     )
+    post = AsyncPostStub(
+        [
+            FakeResponse(
+                {
+                    "id": "chatcmpl-async",
+                    "object": "chat.completion",
+                    "created": 2,
+                    "model": "brave",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "async answer"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            ),
+            FakeAsyncResponse(
+                lines=['data: {"choices":[{"delta":{"content":"async answer chunk"}}]}']
+            ),
+        ]
+    )
     monkeypatch.setattr(session, "get", get)
+    monkeypatch.setattr(session, "post", post)
     client = AsyncBrave(api_key="token", client=session)
 
     web_response = await client.web_search(WebSearchQueryParams(q="python"))
-    spellcheck_response = await client.spellcheck(SpellcheckQueryParams(q="helo"))
-    stream_response = await client.summarizer_summary_streaming(
+    llm_response = await client.llm_context(LLMContextQueryParams(q="python"))
+    answers_response = await client.answers(
+        AnswersRequest(messages=[{"role": "user", "content": "hello"}])
+    )
+    answer_stream_response = await client.answers_streaming(
+        AnswersRequest(messages=[{"role": "user", "content": "hello"}])
+    )
+    answer_stream = [
+        event async for event in answer_stream_response.iter_lines_parsed()
+    ]
+    summary_stream_response = await client.summarizer_summary_streaming(
         SummarizerQueryParams(key="k")
     )
-    stream = [event async for event in stream_response.iter_lines_parsed()]
+    summary_stream = [
+        event async for event in summary_stream_response.iter_lines_parsed()
+    ]
+    answers_data = answers_response.parsed_data
 
     assert web_response.parsed_data.type == "search"
-    assert spellcheck_response.parsed_data.type == "spellcheck"
-    assert stream[0].text == "async chunk"
+    assert llm_response.parsed_data.grounding.generic[0].title == "Async Example"
+    assert answers_data.choices[0].message is not None
+    assert answers_data.choices[0].message.content == "async answer"
+    assert answer_stream[0].text == "async answer chunk"
+    assert summary_stream[0].text == "async chunk"
     assert get.calls[0]["url"] == "https://api.search.brave.com/res/v1/web/search"
     assert get.calls[2]["stream"] is True
+    assert (
+        post.calls[0]["url"] == "https://api.search.brave.com/res/v1/chat/completions"
+    )
+    assert post.calls[1]["stream"] is True
 
 
 def test_news_search_query_params_validate_freshness() -> None:
@@ -241,6 +421,60 @@ def test_summarizer_response_is_flexible_but_typed() -> None:
     assert response.entities_info is not None
     assert response.entities_info
     assert response.entities_info[0].name == "K2"
+
+
+def test_answers_response_is_openai_compatible_but_flexible() -> None:
+    response = AnswersApiResponse.model_validate(
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "brave",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "K2 is the second highest mountain.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
+
+    assert response.choices[0].message is not None
+    assert response.choices[0].message.content == "K2 is the second highest mountain."
+
+
+def test_llm_context_response_is_typed_but_extensible() -> None:
+    response = LLMContextApiResponse.model_validate(
+        {
+            "grounding": {
+                "generic": [
+                    {
+                        "url": "https://example.com/k2",
+                        "title": "K2",
+                        "snippets": ["K2 is the second highest mountain."],
+                    }
+                ],
+                "poi": {
+                    "name": "K2 Base Camp",
+                    "snippets": ["Popular trekking destination."],
+                },
+            },
+            "sources": {
+                "https://example.com/k2": {
+                    "title": "K2",
+                    "hostname": "example.com",
+                    "age": ["Monday, January 15, 2024", "2024-01-15", "380 days ago"],
+                }
+            },
+        }
+    )
+
+    assert response.grounding.generic[0].title == "K2"
+    assert response.sources["https://example.com/k2"].hostname == "example.com"
 
 
 def test_summarizer_query_requires_key() -> None:

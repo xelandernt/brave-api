@@ -1,7 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
+from brave_api.answers.models import AnswersRequest
 from brave_api.image_search.models import ImageSearchAPIParams
+from brave_api.llm_context.models import LLMContextQueryParams
+from brave_api.local_search.models import (
+    LocalDescriptionsQueryParams,
+    LocalSearchQueryParams,
+    PlaceSearchQueryParams,
+)
 from brave_api.news_search.models import NewsSearchQueryParams
 from brave_api.suggest.models import SuggestSearchApiResponse, SuggestSearchQueryParams
 from brave_api.util import (
@@ -59,3 +66,37 @@ def test_web_search_helper_validators_cover_optional_and_error_paths() -> None:
 
     with pytest.raises(ValueError):
         validate_location_ids([])
+
+
+def test_local_search_models_validate_ids_and_place_requirements() -> None:
+    with pytest.raises(ValidationError):
+        LocalSearchQueryParams(ids=[])
+
+    with pytest.raises(ValidationError):
+        LocalDescriptionsQueryParams(ids=["loc-1", "loc-1"])
+
+    with pytest.raises(ValidationError):
+        PlaceSearchQueryParams(q="coffee")
+
+    with pytest.raises(ValidationError):
+        PlaceSearchQueryParams(latitude=37.7749)
+
+    params = PlaceSearchQueryParams(
+        q="coffee",
+        latitude=37.7749,
+        longitude=-122.4194,
+    )
+
+    assert params.latitude == 37.7749
+    assert params.longitude == -122.4194
+
+
+def test_llm_context_and_answers_models_validate_inputs() -> None:
+    with pytest.raises(ValidationError):
+        LLMContextQueryParams(q="word " * 51)
+
+    with pytest.raises(ValidationError):
+        LLMContextQueryParams(q="python", freshness="bad")
+
+    with pytest.raises(ValidationError):
+        AnswersRequest(messages=[])

@@ -11,11 +11,26 @@ from typing import TypeVar
 import niquests
 from pydantic import BaseModel
 
+from brave_api.answers.models import (
+    AnswersApiResponse,
+    AnswersRequest,
+    AnswersStreamingEvent,
+)
 from brave_api.constants import BRAVE_API_KEY_ENV_VAR
 from brave_api.image_search.models import ImageSearchAPIParams, ImageSearchApiResponse
+from brave_api.llm_context.models import LLMContextApiResponse, LLMContextQueryParams
+from brave_api.local_search.models import (
+    LocalDescriptionsQueryParams,
+    LocalDescriptionsSearchApiResponse,
+    LocalPoiSearchApiResponse,
+    LocalSearchQueryParams,
+    PlaceSearchApiResponse,
+    PlaceSearchQueryParams,
+)
 from brave_api.news_search.models import NewsSearchApiResponse, NewsSearchQueryParams
 from brave_api.response import AsyncResponse, Response
 from brave_api.retries import RetryConfig
+from brave_api.rich_search.models import RichSearchApiResponse, RichSearchQueryParams
 from brave_api.spellcheck.models import SpellcheckApiResponse, SpellcheckQueryParams
 from brave_api.suggest.models import SuggestSearchApiResponse, SuggestSearchQueryParams
 from brave_api.summarizer_search.models import (
@@ -30,14 +45,7 @@ from brave_api.summarizer_search.models import (
     SummarizerTitleApiResponse,
 )
 from brave_api.video_search.models import VideoSearchApiResponse, VideoSearchQueryParams
-from brave_api.web_search.models import (
-    LocalDescriptionsQueryParams,
-    LocalDescriptionsSearchApiResponse,
-    LocalPoiSearchApiResponse,
-    LocalSearchQueryParams,
-    WebSearchApiResponse,
-    WebSearchQueryParams,
-)
+from brave_api.web_search.models import WebSearchApiResponse, WebSearchQueryParams
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
 
@@ -135,6 +143,58 @@ def _parse_streaming_event(line: str) -> SummarizerStreamingEvent:
     )
 
 
+def _extract_answers_text(response: AnswersApiResponse) -> str | None:
+    if not response.choices:
+        return None
+
+    first_choice = response.choices[0]
+    if first_choice.delta is not None and isinstance(first_choice.delta.content, str):
+        return first_choice.delta.content
+    if first_choice.message is not None and isinstance(
+        first_choice.message.content, str
+    ):
+        return first_choice.message.content
+    return None
+
+
+def _parse_answers_streaming_event(line: str) -> AnswersStreamingEvent:
+    event: str | None = None
+    payload = line
+    text: str | None = None
+    done = False
+    chunk: AnswersApiResponse | None = None
+
+    if line.startswith("event:"):
+        event = line.split(":", 1)[1].strip()
+        payload = ""
+    elif line.startswith("data:"):
+        payload = line.split(":", 1)[1].strip()
+
+    if payload:
+        if payload == "[DONE]":
+            done = True
+        else:
+            try:
+                loaded_payload: object = json.loads(payload)
+            except json.JSONDecodeError:
+                text = payload
+            else:
+                parsed_object = _coerce_json_object(loaded_payload)
+                if parsed_object is not None:
+                    chunk = AnswersApiResponse.model_validate(parsed_object)
+                    text = _extract_answers_text(chunk)
+                else:
+                    text = payload
+
+    return AnswersStreamingEvent(
+        raw=line,
+        event=event,
+        text=text,
+        done=done,
+        chunk=chunk,
+    )
+
+
 class _BraveBase(abc.ABC):
     def __init__(
         self,
@@ -172,6 +232,30 @@ class _BraveBase(abc.ABC):
         ).items():
             params[key] = _normalize_query_value(value)
         return self._build_url(path), headers, params
+
+    def _build_json_request(
+        self, path: str, payload_model: BaseModel
+    ) -> tuple[str, HeadersMap, JsonObject]:
+        api_key = self._provided_api_key or _get_api_key_from_env()
+        if not api_key:
+            raise ValueError(
+                "API key is required. Set it via environment variable BRAVE_API_KEY or pass it to the client."
+            )
+
+        headers: HeadersMap = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Subscription-Token": api_key,
+        }
+        payload = _coerce_json_object(
+            payload_model.model_dump(
+                exclude_none=True,
+                exclude_unset=True,
+            )
+        )
+        if payload is None:
+            raise TypeError("Request body must serialize to a JSON object")
+        return self._build_url(path), headers, payload
 
     def _build_proxies(self) -> ProxyConfig | None:
         if self._proxy is None:
@@ -310,10 +394,113 @@ class AsyncBrave(_BraveBase):
 
         raise AssertionError("unreachable")
 
+    async def _request_json(
+        self,
+        path: str,
+        payload_model: BaseModel,
+        response_model: type[ResponseModelT],
+    ) -> Response[ResponseModelT]:
+        url, headers, payload = self._build_json_request(path, payload_model)
+        proxies = self._build_proxies()
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response: niquests.Response = await self._client.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    proxies=proxies,
+                    stream=False,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                await asyncio.sleep(
+                    self._retry_config.strategy.get_delay(attempt, error=error)
+                )
+                continue
+
+            retry_config = self._retry_config
+            if retry_config is not None and self._should_retry_status(
+                response.status_code,
+                attempt,
+                attempts,
+            ):
+                await asyncio.sleep(
+                    retry_config.strategy.get_delay(attempt, response=response)
+                )
+                continue
+
+            response.raise_for_status()
+            return Response(response, response_model)
+
+        raise AssertionError("unreachable")
+
+    async def _request_json_streaming(
+        self,
+        path: str,
+        payload_model: BaseModel,
+        response_model: type[ResponseModelT],
+        *,
+        line_parser: Callable[[str], ResponseModelT] | None = None,
+    ) -> AsyncResponse[ResponseModelT]:
+        url, headers, payload = self._build_json_request(path, payload_model)
+        proxies = self._build_proxies()
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response: niquests.AsyncResponse = await self._client.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    proxies=proxies,
+                    stream=True,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                await asyncio.sleep(
+                    self._retry_config.strategy.get_delay(attempt, error=error)
+                )
+                continue
+
+            retry_config = self._retry_config
+            if retry_config is not None and self._should_retry_status(
+                response.status_code,
+                attempt,
+                attempts,
+            ):
+                await asyncio.sleep(
+                    retry_config.strategy.get_delay(attempt, response=response)
+                )
+                continue
+
+            response.raise_for_status()
+            return AsyncResponse(
+                response,
+                response_model,
+                line_parser=line_parser,
+            )
+
+        raise AssertionError("unreachable")
+
     async def web_search(
         self, query: WebSearchQueryParams
     ) -> Response[WebSearchApiResponse]:
         return await self._request("/web/search", query, WebSearchApiResponse)
+
+    async def rich_search(
+        self, query: RichSearchQueryParams
+    ) -> Response[RichSearchApiResponse]:
+        return await self._request("/web/rich", query, RichSearchApiResponse)
 
     async def image_search(
         self, query: ImageSearchAPIParams
@@ -345,6 +532,11 @@ class AsyncBrave(_BraveBase):
     ) -> Response[LocalPoiSearchApiResponse]:
         return await self._request("/local/pois", query, LocalPoiSearchApiResponse)
 
+    async def place_search(
+        self, query: PlaceSearchQueryParams
+    ) -> Response[PlaceSearchApiResponse]:
+        return await self._request("/local/place_search", query, PlaceSearchApiResponse)
+
     async def local_descriptions(
         self, query: LocalDescriptionsQueryParams
     ) -> Response[LocalDescriptionsSearchApiResponse]:
@@ -359,6 +551,28 @@ class AsyncBrave(_BraveBase):
     ) -> Response[SummarizerSearchApiResponse]:
         return await self._request(
             "/summarizer/search", query, SummarizerSearchApiResponse
+        )
+
+    async def llm_context(
+        self, query: LLMContextQueryParams
+    ) -> Response[LLMContextApiResponse]:
+        return await self._request("/llm/context", query, LLMContextApiResponse)
+
+    async def answers(self, query: AnswersRequest) -> Response[AnswersApiResponse]:
+        return await self._request_json(
+            "/chat/completions",
+            query.model_copy(update={"stream": False}),
+            AnswersApiResponse,
+        )
+
+    async def answers_streaming(
+        self, query: AnswersRequest
+    ) -> AsyncResponse[AnswersStreamingEvent]:
+        return await self._request_json_streaming(
+            "/chat/completions",
+            query.model_copy(update={"stream": True}),
+            AnswersStreamingEvent,
+            line_parser=_parse_answers_streaming_event,
         )
 
     async def summarizer_summary(
@@ -484,8 +698,62 @@ class Brave(_BraveBase):
 
         raise AssertionError("unreachable")
 
+    def _request_json(
+        self,
+        path: str,
+        payload_model: BaseModel,
+        *,
+        stream: bool = False,
+        response_model: type[ResponseModelT],
+        line_parser: Callable[[str], ResponseModelT] | None = None,
+    ) -> Response[ResponseModelT]:
+        url, headers, payload = self._build_json_request(path, payload_model)
+        proxies = self._build_proxies()
+        attempts = self._retry_config.max_attempts if self._retry_config else 1
+        retryable_exceptions = (
+            self._retry_config.retryable_exceptions if self._retry_config else ()
+        )
+
+        for attempt in range(1, attempts + 1):
+            try:
+                response: niquests.Response = self._client.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    proxies=proxies,
+                    stream=stream,
+                )
+            except retryable_exceptions as error:
+                if self._retry_config is None or attempt == attempts:
+                    raise
+                time.sleep(self._retry_config.strategy.get_delay(attempt, error=error))
+                continue
+
+            retry_config = self._retry_config
+            if retry_config is not None and self._should_retry_status(
+                response.status_code,
+                attempt,
+                attempts,
+            ):
+                time.sleep(retry_config.strategy.get_delay(attempt, response=response))
+                continue
+
+            response.raise_for_status()
+            return Response(
+                response,
+                response_model,
+                line_parser=line_parser,
+            )
+
+        raise AssertionError("unreachable")
+
     def web_search(self, query: WebSearchQueryParams) -> Response[WebSearchApiResponse]:
         return self._request("/web/search", query, response_model=WebSearchApiResponse)
+
+    def rich_search(
+        self, query: RichSearchQueryParams
+    ) -> Response[RichSearchApiResponse]:
+        return self._request("/web/rich", query, response_model=RichSearchApiResponse)
 
     def image_search(
         self, query: ImageSearchAPIParams
@@ -535,6 +803,15 @@ class Brave(_BraveBase):
             "/local/pois", query, response_model=LocalPoiSearchApiResponse
         )
 
+    def place_search(
+        self, query: PlaceSearchQueryParams
+    ) -> Response[PlaceSearchApiResponse]:
+        return self._request(
+            "/local/place_search",
+            query,
+            response_model=PlaceSearchApiResponse,
+        )
+
     def local_descriptions(
         self, query: LocalDescriptionsQueryParams
     ) -> Response[LocalDescriptionsSearchApiResponse]:
@@ -551,6 +828,33 @@ class Brave(_BraveBase):
             "/summarizer/search",
             query,
             response_model=SummarizerSearchApiResponse,
+        )
+
+    def llm_context(
+        self, query: LLMContextQueryParams
+    ) -> Response[LLMContextApiResponse]:
+        return self._request(
+            "/llm/context",
+            query,
+            response_model=LLMContextApiResponse,
+        )
+
+    def answers(self, query: AnswersRequest) -> Response[AnswersApiResponse]:
+        return self._request_json(
+            "/chat/completions",
+            query.model_copy(update={"stream": False}),
+            response_model=AnswersApiResponse,
+        )
+
+    def answers_streaming(
+        self, query: AnswersRequest
+    ) -> Response[AnswersStreamingEvent]:
+        return self._request_json(
+            "/chat/completions",
+            query.model_copy(update={"stream": True}),
+            stream=True,
+            response_model=AnswersStreamingEvent,
+            line_parser=_parse_answers_streaming_event,
         )
 
     def summarizer_summary(

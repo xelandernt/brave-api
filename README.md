@@ -176,13 +176,18 @@ use the same names and are awaited.
 | API group                | Brave endpoint(s)                      | Client methods                   | Request model(s)                  | Return type                                                                                           |
 |--------------------------|----------------------------------------|----------------------------------|-----------------------------------|-------------------------------------------------------------------------------------------------------|
 | Web search               | `/res/v1/web/search`                   | `web_search()`                   | `WebSearchQueryParams`            | `Response[WebSearchApiResponse]`                                                                       |
+| Rich search              | `/res/v1/web/rich`                     | `rich_search()`                  | `RichSearchQueryParams`           | `Response[RichSearchApiResponse]`                                                                      |
 | Image search             | `/res/v1/images/search`                | `image_search()`                 | `ImageSearchAPIParams`            | `Response[ImageSearchApiResponse]`                                                                     |
 | News search              | `/res/v1/news/search`                  | `news_search()`                  | `NewsSearchQueryParams`           | `Response[NewsSearchApiResponse]`                                                                      |
 | Video search             | `/res/v1/videos/search`                | `video_search()`                 | `VideoSearchQueryParams`          | `Response[VideoSearchApiResponse]`                                                                     |
 | Spellcheck               | `/res/v1/spellcheck/search`            | `spellcheck()`                   | `SpellcheckQueryParams`           | `Response[SpellcheckApiResponse]`                                                                      |
 | Suggest                  | `/res/v1/suggest/search`               | `suggest()`                      | `SuggestSearchQueryParams`        | `Response[SuggestSearchApiResponse]`                                                                   |
+| Place search             | `/res/v1/local/place_search`           | `place_search()`                 | `PlaceSearchQueryParams`          | `Response[PlaceSearchApiResponse]`                                                                     |
 | Local points of interest | `/res/v1/local/pois`                   | `local_pois()`                   | `LocalSearchQueryParams`          | `Response[LocalPoiSearchApiResponse]`                                                                  |
 | Local descriptions       | `/res/v1/local/descriptions`           | `local_descriptions()`           | `LocalDescriptionsQueryParams`    | `Response[LocalDescriptionsSearchApiResponse]`                                                         |
+| LLM context              | `/res/v1/llm/context`                  | `llm_context()`                  | `LLMContextQueryParams`           | `Response[LLMContextApiResponse]`                                                                       |
+| Answers                  | `/res/v1/chat/completions`             | `answers()`                      | `AnswersRequest`                  | `Response[AnswersApiResponse]`                                                                         |
+| Answers streaming        | `/res/v1/chat/completions`             | `answers_streaming()`            | `AnswersRequest`                  | `Response[AnswersStreamingEvent]` on `Brave`; `AsyncResponse[AnswersStreamingEvent]` on `AsyncBrave` |
 | Summarizer search        | `/res/v1/summarizer/search`            | `summarizer_search()`            | `SummarizerQueryParams`           | `Response[SummarizerSearchApiResponse]`                                                                |
 | Summarizer summary       | `/res/v1/summarizer/summary`           | `summarizer_summary()`           | `SummarizerQueryParams`           | `Response[SummarizerSummaryApiResponse]`                                                               |
 | Summarizer title         | `/res/v1/summarizer/title`             | `summarizer_title()`             | `SummarizerQueryParams`           | `Response[SummarizerTitleApiResponse]`                                                                 |
@@ -211,9 +216,17 @@ and query refinement.
 
 ### Local APIs
 
-The local APIs provide enrichment for places and points of interest. A common
-flow is to discover location IDs from search results and then fetch POI details
-or descriptions.
+The local APIs cover both discovery and enrichment for places and points of
+interest. A common flow is to use `place_search()` to find locations, then
+fetch follow-up POI details or descriptions with `local_pois()` and
+`local_descriptions()`.
+
+### LLM context and answers APIs
+
+The package includes dedicated models for Brave's LLM grounding APIs.
+`llm_context()` returns extracted grounding content for your own LLM workflows,
+while `answers()` and `answers_streaming()` expose the OpenAI-compatible
+chat-completions endpoint backed by Brave Search.
 
 ### Summarizer APIs
 
