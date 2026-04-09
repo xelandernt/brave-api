@@ -3,6 +3,8 @@
 [![Supported versions](https://img.shields.io/pypi/pyversions/that-depends.svg)](https://pypi.python.org/pypi/brave-api-client)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/brave-api-client?period=monthly&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=YELLOWGREEN&left_text=downloads%2Fmonth)](https://pepy.tech/projects/brave-api-client)
 [![GitHub stars](https://img.shields.io/github/stars/xelandernt/brave-api)](https://github.com/xelandernt/brave-api/stargazers)
+[![pyrefly](https://img.shields.io/endpoint?url=https://pyrefly.org/badge.json)](https://github.com/facebook/pyrefly)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 Typed Python client for the Brave Search API.
 
