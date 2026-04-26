@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from brave_api.answers.models import AnswersApiResponse, AnswersRequest
 from brave_api.client import AsyncBrave, Brave
+from brave_api.constants import DEFAULT_BRAVE_API_VERSION
 from brave_api.image_search.models import ImageSearchAPIParams
 from brave_api.llm_context.models import LLMContextApiResponse, LLMContextQueryParams
 from brave_api.local_search.models import (
@@ -270,6 +271,7 @@ def test_sync_client_methods_use_expected_endpoints(
     assert all(
         call["headers"] is not None
         and call["headers"]["X-Subscription-Token"] == "token"
+        and call["headers"]["Api-Version"] == DEFAULT_BRAVE_API_VERSION
         for call in [*get.calls, *post.calls]
     )
     assert all(
@@ -370,6 +372,53 @@ async def test_async_client_methods_and_streaming_work(
         post.calls[0]["url"] == "https://api.search.brave.com/res/v1/chat/completions"
     )
     assert post.calls[1]["stream"] is True
+    assert all(
+        call["headers"] is not None
+        and call["headers"]["X-Subscription-Token"] == "token"
+        and call["headers"]["Api-Version"] == DEFAULT_BRAVE_API_VERSION
+        for call in [*get.calls, *post.calls]
+    )
+
+
+def test_sync_client_allows_custom_api_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.Session()
+    get = SyncGetStub([FakeResponse({"type": "search"})])
+    monkeypatch.setattr(session, "get", get)
+    client = Brave(api_key="token", api_version="2024-04-09", client=session)
+
+    response = client.web_search(WebSearchQueryParams(q="python"))
+
+    assert response.parsed_data.type == "search"
+    assert get.calls[0]["headers"] == {
+        "Accept": "application/json",
+        "Api-Version": "2024-04-09",
+        "X-Subscription-Token": "token",
+    }
+
+
+async def test_async_client_allows_custom_api_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.AsyncSession()
+    get = AsyncGetStub([FakeResponse({"type": "search"})])
+    monkeypatch.setattr(session, "get", get)
+    client = AsyncBrave(api_key="token", api_version="2024-04-09", client=session)
+
+    response = await client.web_search(WebSearchQueryParams(q="python"))
+
+    assert response.parsed_data.type == "search"
+    assert get.calls[0]["headers"] == {
+        "Accept": "application/json",
+        "Api-Version": "2024-04-09",
+        "X-Subscription-Token": "token",
+    }
+
+
+def test_client_rejects_blank_api_version() -> None:
+    with pytest.raises(ValueError, match="API version is required"):
+        Brave(api_key="token", api_version="   ")
 
 
 def test_news_search_query_params_validate_freshness() -> None:

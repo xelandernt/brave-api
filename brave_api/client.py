@@ -16,7 +16,11 @@ from brave_api.answers.models import (
     AnswersRequest,
     AnswersStreamingEvent,
 )
-from brave_api.constants import BRAVE_API_KEY_ENV_VAR
+from brave_api.constants import (
+    BRAVE_API_KEY_ENV_VAR,
+    BRAVE_API_VERSION_HEADER,
+    DEFAULT_BRAVE_API_VERSION,
+)
 from brave_api.image_search.models import ImageSearchAPIParams, ImageSearchApiResponse
 from brave_api.llm_context.models import LLMContextApiResponse, LLMContextQueryParams
 from brave_api.local_search.models import (
@@ -58,6 +62,19 @@ QueryParams = dict[str, QueryParamValue]
 
 def _get_api_key_from_env() -> str | None:
     return os.getenv(BRAVE_API_KEY_ENV_VAR)
+
+
+def _normalize_api_version(api_version: str | None) -> str:
+    if api_version is None:
+        return DEFAULT_BRAVE_API_VERSION
+
+    normalized_api_version = api_version.strip()
+    if not normalized_api_version:
+        raise ValueError(
+            "API version is required. Pass a non-empty value or omit api_version to use the default."
+        )
+
+    return normalized_api_version
 
 
 def _coerce_json_object(value: object) -> JsonObject | None:
@@ -201,30 +218,41 @@ class _BraveBase(abc.ABC):
         *,
         base_url: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
         proxy: str | None = None,
         retry_config: RetryConfig | None = None,
     ) -> None:
         self.base_url = base_url or "https://api.search.brave.com/res/v1"
         self._provided_api_key = api_key
+        self.api_version = _normalize_api_version(api_version)
         self._proxy = proxy
         self._retry_config = retry_config
 
     def _build_url(self, path: str) -> str:
         return f"{self.base_url}{path}"
 
-    def _build_request(
-        self, path: str, query_params: BaseModel
-    ) -> tuple[str, HeadersMap, QueryParams]:
+    def _get_api_key(self) -> str:
         api_key = self._provided_api_key or _get_api_key_from_env()
         if not api_key:
             raise ValueError(
                 "API key is required. Set it via environment variable BRAVE_API_KEY or pass it to the client."
             )
+        return api_key
 
+    def _build_headers(self, *, json_request: bool = False) -> HeadersMap:
         headers: HeadersMap = {
             "Accept": "application/json",
-            "X-Subscription-Token": api_key,
+            BRAVE_API_VERSION_HEADER: self.api_version,
+            "X-Subscription-Token": self._get_api_key(),
         }
+        if json_request:
+            headers["Content-Type"] = "application/json"
+        return headers
+
+    def _build_request(
+        self, path: str, query_params: BaseModel
+    ) -> tuple[str, HeadersMap, QueryParams]:
+        headers = self._build_headers()
         params: QueryParams = {}
         for key, value in query_params.model_dump(
             exclude_none=True,
@@ -236,17 +264,7 @@ class _BraveBase(abc.ABC):
     def _build_json_request(
         self, path: str, payload_model: BaseModel
     ) -> tuple[str, HeadersMap, JsonObject]:
-        api_key = self._provided_api_key or _get_api_key_from_env()
-        if not api_key:
-            raise ValueError(
-                "API key is required. Set it via environment variable BRAVE_API_KEY or pass it to the client."
-            )
-
-        headers: HeadersMap = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Subscription-Token": api_key,
-        }
+        headers = self._build_headers(json_request=True)
         payload = _coerce_json_object(
             payload_model.model_dump(
                 exclude_none=True,
@@ -285,12 +303,14 @@ class AsyncBrave(_BraveBase):
         *,
         base_url: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
         proxy: str | None = None,
         retry_config: RetryConfig | None = None,
     ) -> None:
         super().__init__(
             base_url=base_url,
             api_key=api_key,
+            api_version=api_version,
             proxy=proxy,
             retry_config=retry_config,
         )
@@ -638,12 +658,14 @@ class Brave(_BraveBase):
         *,
         base_url: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
         proxy: str | None = None,
         retry_config: RetryConfig | None = None,
     ) -> None:
         super().__init__(
             base_url=base_url,
             api_key=api_key,
+            api_version=api_version,
             proxy=proxy,
             retry_config=retry_config,
         )

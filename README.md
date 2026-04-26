@@ -39,6 +39,29 @@ Or set `BRAVE_API_KEY`:
 export BRAVE_API_KEY=your-api-key
 ```
 
+Authentication still uses Brave's `X-Subscription-Token` header automatically on
+every request.
+
+## API versioning
+
+Brave documents request version pinning with the `Api-Version` header. This
+client sends `Api-Version: 2023-01-01` by default on every request so your
+integration is pinned to a known API version instead of silently tracking the
+latest behavior.
+
+Override the version per client when you need a different Brave API release:
+
+```python
+from brave_api.client import Brave
+
+client = Brave(
+    api_key="your-api-key",
+    api_version="2024-04-09",
+)
+```
+
+`AsyncBrave` accepts the same `api_version` argument.
+
 ## Available clients
 
 - `Brave`: synchronous client
