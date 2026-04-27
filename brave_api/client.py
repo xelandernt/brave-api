@@ -197,6 +197,22 @@ def _parse_answers_streaming_event(line: str) -> AnswersStreamingEvent:
     )
 
 
+def _buffer_streaming_error_response(
+    response: niquests.Response, *, stream: bool
+) -> None:
+    status_code = response.status_code
+    if stream and status_code is not None and status_code >= 400:
+        _ = response.content
+
+
+async def _buffer_async_streaming_error_response(
+    response: niquests.AsyncResponse,
+) -> None:
+    status_code = response.status_code
+    if status_code is not None and status_code >= 400:
+        _ = await response.content
+
+
 class _BraveBase(abc.ABC):
     def __init__(
         self,
@@ -380,6 +396,7 @@ class AsyncBrave(_BraveBase):
                 )
                 continue
 
+            await _buffer_async_streaming_error_response(response)
             retry_config = self._retry_config
             if retry_config is not None and self._should_retry_status(
                 response.status_code,
@@ -478,6 +495,7 @@ class AsyncBrave(_BraveBase):
                 )
                 continue
 
+            await _buffer_async_streaming_error_response(response)
             retry_config = self._retry_config
             if retry_config is not None and self._should_retry_status(
                 response.status_code,
@@ -709,6 +727,7 @@ class Brave(_BraveBase):
                 time.sleep(self._retry_config.strategy.get_delay(attempt, error=error))
                 continue
 
+            _buffer_streaming_error_response(response, stream=stream)
             retry_config = self._retry_config
             if retry_config is not None and self._should_retry_status(
                 response.status_code,
@@ -758,6 +777,7 @@ class Brave(_BraveBase):
                 time.sleep(self._retry_config.strategy.get_delay(attempt, error=error))
                 continue
 
+            _buffer_streaming_error_response(response, stream=stream)
             retry_config = self._retry_config
             if retry_config is not None and self._should_retry_status(
                 response.status_code,

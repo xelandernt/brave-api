@@ -36,6 +36,41 @@ from tests.client.fakes import (
 )
 
 
+class StreamingErrorResponse(FakeResponse):
+    def __init__(self, payload: dict[str, object], *, status_code: int) -> None:
+        super().__init__(payload, status_code=status_code)
+        self._content_loaded = False
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "content":
+            object.__setattr__(self, "_content_loaded", True)
+        return super().__getattribute__(name)
+
+    def json(self, **kwargs: object) -> dict[str, object]:
+        if not self._content_loaded:
+            raise AssertionError("streaming error content was not buffered")
+        return super().json(**kwargs)
+
+
+class AsyncStreamingErrorResponse(FakeAsyncResponse):
+    def __init__(self, payload: dict[str, object], *, status_code: int) -> None:
+        super().__init__(payload, status_code=status_code)
+        self._content_loaded = False
+
+    @property
+    def content(self):  # type: ignore[override]
+        return self._get_content()
+
+    async def _get_content(self) -> bytes | None:
+        self._content_loaded = True
+        return await super()._get_content()
+
+    async def json(self, **kwargs: object) -> dict[str, object]:
+        if not self._content_loaded:
+            raise AssertionError("streaming error content was not buffered")
+        return await super().json(**kwargs)
+
+
 def test_sync_client_methods_use_expected_endpoints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -383,6 +418,65 @@ async def test_async_client_methods_and_streaming_work(
     assert get.calls[0]["headers"]["Api-Version"] == "2023-01-01"
     assert post.calls[0]["headers"] is not None
     assert post.calls[0]["headers"]["Api-Version"] == "2023-01-01"
+
+
+def test_sync_streaming_http_error_keeps_response_body_readable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.Session()
+    post = SyncPostStub(
+        [
+            StreamingErrorResponse(
+                {
+                    "error": {
+                        "code": "OPTION_NOT_IN_PLAN",
+                    }
+                },
+                status_code=400,
+            )
+        ]
+    )
+    monkeypatch.setattr(session, "post", post)
+    client = Brave(api_key="token", client=session)
+
+    with pytest.raises(niquests.exceptions.HTTPError) as error_info:
+        client.answers_streaming(
+            AnswersRequest(messages=[{"role": "user", "content": "hello"}])
+        )
+
+    assert error_info.value.response is not None
+    assert error_info.value.response.json()["error"]["code"] == "OPTION_NOT_IN_PLAN"
+
+
+async def test_async_streaming_http_error_keeps_response_body_readable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = niquests.AsyncSession()
+    post = AsyncPostStub(
+        [
+            AsyncStreamingErrorResponse(
+                {
+                    "error": {
+                        "code": "OPTION_NOT_IN_PLAN",
+                    }
+                },
+                status_code=400,
+            )
+        ]
+    )
+    monkeypatch.setattr(session, "post", post)
+    client = AsyncBrave(api_key="token", client=session)
+
+    with pytest.raises(niquests.exceptions.HTTPError) as error_info:
+        await client.answers_streaming(
+            AnswersRequest(messages=[{"role": "user", "content": "hello"}])
+        )
+
+    assert error_info.value.response is not None
+    payload = error_info.value.response.json()
+    if hasattr(payload, "__await__"):
+        payload = await payload
+    assert payload["error"]["code"] == "OPTION_NOT_IN_PLAN"
 
 
 def test_news_search_query_params_validate_freshness() -> None:
