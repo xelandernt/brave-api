@@ -104,8 +104,31 @@ on `AsyncBrave`. Use `response.parsed_data` for the validated Pydantic model and
 
 ## Retry configuration
 
-Retries are opt-in. The default `Brave` and `AsyncBrave` clients do not retry
-unless you pass a `RetryConfig`.
+Retries are enabled by default. `Brave` and `AsyncBrave` use `RetryConfig()`
+unless you override it, so retryable errors automatically use
+`BraveRateLimitRetryStrategy`.
+
+The default configuration retries transient transport failures plus HTTP `429`,
+`500`, `502`, `503`, and `504`.
+
+### Default behavior
+
+```python
+from brave_api.client import Brave
+
+client = Brave(api_key="your-api-key")
+```
+
+That default client retries with Brave's documented `X-RateLimit-Reset` and
+`X-RateLimit-Remaining` headers.
+
+### Disable retries
+
+```python
+from brave_api.client import Brave
+
+client = Brave(api_key="your-api-key", retry_config=None)
+```
 
 ### Fixed-delay retries
 
@@ -140,16 +163,18 @@ client = AsyncBrave(
 )
 ```
 
-### Retry-After aware retries
+### Brave rate-limit aware retries
 
-`RetryAfterRetryStrategy` uses the server's `Retry-After` header when present
-and falls back to another strategy otherwise.
+`BraveRateLimitRetryStrategy` uses Brave's `X-RateLimit-Reset` header and pairs
+it with `X-RateLimit-Remaining` when available so retries wait for the
+exhausted window to reopen. It falls back to `Retry-After`, then to another
+strategy.
 
 ```python
 from brave_api.client import Brave
 from brave_api.retries import (
+    BraveRateLimitRetryStrategy,
     ExponentialBackoffRetryStrategy,
-    RetryAfterRetryStrategy,
     RetryConfig,
 )
 
@@ -157,7 +182,7 @@ client = Brave(
     api_key="your-api-key",
     retry_config=RetryConfig(
         max_attempts=3,
-        strategy=RetryAfterRetryStrategy(
+        strategy=BraveRateLimitRetryStrategy(
             fallback_strategy=ExponentialBackoffRetryStrategy(
                 base_delay_seconds=1.0,
                 max_delay_seconds=10.0,
@@ -167,8 +192,10 @@ client = Brave(
 )
 ```
 
-By default, `RetryConfig` retries transient transport failures plus HTTP
-`429`, `500`, `502`, `503`, and `504`.
+### Retry-After aware retries
+
+`RetryAfterRetryStrategy` is still available when you want to prioritize the
+standard `Retry-After` header instead of Brave's rate-limit headers.
 
 ## Supported APIs and methods
 

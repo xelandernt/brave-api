@@ -6,9 +6,10 @@ import json
 import os
 import time
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Final, TypeVar
 
 import niquests
+import typing_extensions
 from pydantic import BaseModel
 
 from brave_api.answers.models import (
@@ -48,6 +49,7 @@ from brave_api.video_search.models import VideoSearchApiResponse, VideoSearchQue
 from brave_api.web_search.models import WebSearchApiResponse, WebSearchQueryParams
 
 ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
+DEFAULT_RETRY_CONFIG: Final[RetryConfig] = RetryConfig()
 
 HeadersMap = dict[str, str]
 JsonObject = dict[str, object]
@@ -201,30 +203,42 @@ class _BraveBase(abc.ABC):
         *,
         base_url: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
         proxy: str | None = None,
-        retry_config: RetryConfig | None = None,
+        retry_config: RetryConfig | None = DEFAULT_RETRY_CONFIG,
     ) -> None:
         self.base_url = base_url or "https://api.search.brave.com/res/v1"
         self._provided_api_key = api_key
+        self._api_version = api_version
         self._proxy = proxy
         self._retry_config = retry_config
 
     def _build_url(self, path: str) -> str:
         return f"{self.base_url}{path}"
 
-    def _build_request(
-        self, path: str, query_params: BaseModel
-    ) -> tuple[str, HeadersMap, QueryParams]:
+    def _get_api_key(self) -> str:
         api_key = self._provided_api_key or _get_api_key_from_env()
         if not api_key:
             raise ValueError(
                 "API key is required. Set it via environment variable BRAVE_API_KEY or pass it to the client."
             )
+        return api_key
 
+    def _build_headers(self, *, content_type: str | None = None) -> HeadersMap:
         headers: HeadersMap = {
             "Accept": "application/json",
-            "X-Subscription-Token": api_key,
+            "X-Subscription-Token": self._get_api_key(),
         }
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+        if self._api_version is not None:
+            headers["Api-Version"] = self._api_version
+        return headers
+
+    def _build_request(
+        self, path: str, query_params: BaseModel
+    ) -> tuple[str, HeadersMap, QueryParams]:
+        headers = self._build_headers()
         params: QueryParams = {}
         for key, value in query_params.model_dump(
             exclude_none=True,
@@ -236,17 +250,7 @@ class _BraveBase(abc.ABC):
     def _build_json_request(
         self, path: str, payload_model: BaseModel
     ) -> tuple[str, HeadersMap, JsonObject]:
-        api_key = self._provided_api_key or _get_api_key_from_env()
-        if not api_key:
-            raise ValueError(
-                "API key is required. Set it via environment variable BRAVE_API_KEY or pass it to the client."
-            )
-
-        headers: HeadersMap = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Subscription-Token": api_key,
-        }
+        headers = self._build_headers(content_type="application/json")
         payload = _coerce_json_object(
             payload_model.model_dump(
                 exclude_none=True,
@@ -285,12 +289,14 @@ class AsyncBrave(_BraveBase):
         *,
         base_url: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
         proxy: str | None = None,
-        retry_config: RetryConfig | None = None,
+        retry_config: RetryConfig | None = DEFAULT_RETRY_CONFIG,
     ) -> None:
         super().__init__(
             base_url=base_url,
             api_key=api_key,
+            api_version=api_version,
             proxy=proxy,
             retry_config=retry_config,
         )
@@ -546,6 +552,9 @@ class AsyncBrave(_BraveBase):
             LocalDescriptionsSearchApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_search(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerSearchApiResponse]:
@@ -575,6 +584,9 @@ class AsyncBrave(_BraveBase):
             line_parser=_parse_answers_streaming_event,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_summary(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerSummaryApiResponse]:
@@ -584,6 +596,9 @@ class AsyncBrave(_BraveBase):
             SummarizerSummaryApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_title(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerTitleApiResponse]:
@@ -591,6 +606,9 @@ class AsyncBrave(_BraveBase):
             "/summarizer/title", query, SummarizerTitleApiResponse
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_enrichments(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerEnrichmentsApiResponse]:
@@ -600,6 +618,9 @@ class AsyncBrave(_BraveBase):
             SummarizerEnrichmentsApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_followups(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerFollowupsApiResponse]:
@@ -609,6 +630,9 @@ class AsyncBrave(_BraveBase):
             SummarizerFollowupsApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_entity_info(
         self, query: SummarizerEntityInfoQueryParams
     ) -> Response[SummarizerEntityInfoApiResponse]:
@@ -618,6 +642,9 @@ class AsyncBrave(_BraveBase):
             SummarizerEntityInfoApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     async def summarizer_summary_streaming(
         self, query: SummarizerQueryParams
     ) -> AsyncResponse[SummarizerStreamingEvent]:
@@ -638,12 +665,14 @@ class Brave(_BraveBase):
         *,
         base_url: str | None = None,
         api_key: str | None = None,
+        api_version: str | None = None,
         proxy: str | None = None,
-        retry_config: RetryConfig | None = None,
+        retry_config: RetryConfig | None = DEFAULT_RETRY_CONFIG,
     ) -> None:
         super().__init__(
             base_url=base_url,
             api_key=api_key,
+            api_version=api_version,
             proxy=proxy,
             retry_config=retry_config,
         )
@@ -821,6 +850,9 @@ class Brave(_BraveBase):
             response_model=LocalDescriptionsSearchApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_search(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerSearchApiResponse]:
@@ -857,6 +889,9 @@ class Brave(_BraveBase):
             line_parser=_parse_answers_streaming_event,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_summary(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerSummaryApiResponse]:
@@ -866,6 +901,9 @@ class Brave(_BraveBase):
             response_model=SummarizerSummaryApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_title(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerTitleApiResponse]:
@@ -875,6 +913,9 @@ class Brave(_BraveBase):
             response_model=SummarizerTitleApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_enrichments(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerEnrichmentsApiResponse]:
@@ -884,6 +925,9 @@ class Brave(_BraveBase):
             response_model=SummarizerEnrichmentsApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_followups(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerFollowupsApiResponse]:
@@ -893,6 +937,9 @@ class Brave(_BraveBase):
             response_model=SummarizerFollowupsApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_entity_info(
         self, query: SummarizerEntityInfoQueryParams
     ) -> Response[SummarizerEntityInfoApiResponse]:
@@ -902,6 +949,9 @@ class Brave(_BraveBase):
             response_model=SummarizerEntityInfoApiResponse,
         )
 
+    @typing_extensions.deprecated(
+        "Summarizer Search API is deprecated in favor of new and improved Answers API."
+    )
     def summarizer_summary_streaming(
         self, query: SummarizerQueryParams
     ) -> Response[SummarizerStreamingEvent]:
