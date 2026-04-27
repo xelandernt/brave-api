@@ -148,7 +148,12 @@ def test_sync_client_methods_use_expected_endpoints(
     )
     monkeypatch.setattr(session, "get", get)
     monkeypatch.setattr(session, "post", post)
-    client = Brave(api_key="token", client=session, proxy="http://proxy")
+    client = Brave(
+        api_key="token",
+        api_version="2023-01-01",
+        client=session,
+        proxy="http://proxy",
+    )
 
     assert (
         client.web_search(WebSearchQueryParams(q="python")).parsed_data.type == "search"
@@ -273,6 +278,10 @@ def test_sync_client_methods_use_expected_endpoints(
         for call in [*get.calls, *post.calls]
     )
     assert all(
+        call["headers"] is not None and call["headers"]["Api-Version"] == "2023-01-01"
+        for call in [*get.calls, *post.calls]
+    )
+    assert all(
         call["proxies"] == {"http": "http://proxy", "https": "http://proxy"}
         for call in [*get.calls, *post.calls]
     )
@@ -337,7 +346,7 @@ async def test_async_client_methods_and_streaming_work(
     )
     monkeypatch.setattr(session, "get", get)
     monkeypatch.setattr(session, "post", post)
-    client = AsyncBrave(api_key="token", client=session)
+    client = AsyncBrave(api_key="token", api_version="2023-01-01", client=session)
 
     web_response = await client.web_search(WebSearchQueryParams(q="python"))
     llm_response = await client.llm_context(LLMContextQueryParams(q="python"))
@@ -370,6 +379,10 @@ async def test_async_client_methods_and_streaming_work(
         post.calls[0]["url"] == "https://api.search.brave.com/res/v1/chat/completions"
     )
     assert post.calls[1]["stream"] is True
+    assert get.calls[0]["headers"] is not None
+    assert get.calls[0]["headers"]["Api-Version"] == "2023-01-01"
+    assert post.calls[0]["headers"] is not None
+    assert post.calls[0]["headers"]["Api-Version"] == "2023-01-01"
 
 
 def test_news_search_query_params_validate_freshness() -> None:

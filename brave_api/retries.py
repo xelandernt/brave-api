@@ -1,4 +1,6 @@
 import abc
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -14,6 +16,9 @@ DEFAULT_RETRYABLE_EXCEPTIONS: Final[tuple[type[Exception], ...]] = (
     niquests.exceptions.ConnectTimeout,
     niquests.exceptions.ReadTimeout,
     niquests.exceptions.Timeout,
+)
+BRAVE_RATE_LIMIT_VALUE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\s*(?P<value>-?\d+(?:\.\d+)?)\s*(?:,|$)"
 )
 
 
@@ -46,7 +51,6 @@ class FixedDelayRetryStrategy(RetryStrategy):
         response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
-        del attempt, response, error
         return self.delay_seconds
 
 
@@ -71,7 +75,6 @@ class ExponentialBackoffRetryStrategy(RetryStrategy):
         response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
-        del response, error
         if attempt < 1:
             raise ValueError("attempt must be >= 1")
         delay = self.base_delay_seconds * (self.multiplier ** (attempt - 1))
@@ -109,7 +112,6 @@ class RetryAfterRetryStrategy(RetryStrategy):
         response: niquests.Response | niquests.AsyncResponse | None = None,
         error: Exception | None = None,
     ) -> float:
-        del error
         if response is not None:
             headers = getattr(response, "headers", None)
             if headers is not None:
@@ -122,10 +124,72 @@ class RetryAfterRetryStrategy(RetryStrategy):
         return self.fallback_strategy.get_delay(attempt, response=response)
 
 
+@dataclass(frozen=True)
+class BraveRateLimitRetryStrategy(RetryStrategy):
+    fallback_strategy: RetryStrategy = field(default_factory=RetryAfterRetryStrategy)
+
+    @staticmethod
+    def _parse_rate_limit_header(value: str) -> tuple[float, ...] | None:
+        parsed_values: list[float] = []
+        position = 0
+        for match in BRAVE_RATE_LIMIT_VALUE_PATTERN.finditer(value):
+            if match.start() != position:
+                return None
+            parsed_values.append(max(0.0, float(match.group("value"))))
+            position = match.end()
+        if position != len(value) or not parsed_values:
+            return None
+        return tuple(parsed_values)
+
+    @classmethod
+    def _parse_brave_rate_limit_delay(cls, headers: Mapping[str, str]) -> float | None:
+        reset_header = headers.get("X-RateLimit-Reset")
+        if not isinstance(reset_header, str):
+            return None
+
+        reset_values = cls._parse_rate_limit_header(reset_header)
+        if reset_values is None or not reset_values:
+            return None
+
+        remaining_header = headers.get("X-RateLimit-Remaining")
+        if isinstance(remaining_header, str):
+            remaining_values = cls._parse_rate_limit_header(remaining_header)
+            if remaining_values is not None and len(remaining_values) == len(
+                reset_values
+            ):
+                exhausted_windows = [
+                    reset_value
+                    for remaining_value, reset_value in zip(
+                        remaining_values, reset_values, strict=True
+                    )
+                    if remaining_value <= 0
+                ]
+                if exhausted_windows:
+                    return max(exhausted_windows)
+
+        return min(reset_values)
+
+    def get_delay(
+        self,
+        attempt: int,
+        *,
+        response: niquests.Response | niquests.AsyncResponse | None = None,
+        error: Exception | None = None,
+    ) -> float:
+        if response is not None:
+            headers = getattr(response, "headers", None)
+            if headers is not None:
+                parsed_delay = self._parse_brave_rate_limit_delay(headers)
+                if parsed_delay is not None:
+                    return parsed_delay
+
+        return self.fallback_strategy.get_delay(attempt, response=response)
+
+
 @dataclass(frozen=True, slots=True)
 class RetryConfig:
     max_attempts: int = 3
-    strategy: RetryStrategy = field(default_factory=RetryAfterRetryStrategy)
+    strategy: RetryStrategy = field(default_factory=BraveRateLimitRetryStrategy)
     retryable_status_codes: frozenset[int] = field(
         default_factory=lambda: DEFAULT_RETRYABLE_STATUS_CODES
     )
