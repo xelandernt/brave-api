@@ -4,8 +4,8 @@ description = "Brave API client for Python"
 readme = "README.md"
 requires-python = ">=3.10,<4"
 dependencies = [
-    "niquests",
-    "pydantic",
+    "niquests>=3",
+    "pydantic>=2",
 ]
 dynamic = ["version"]
 classifiers = [
